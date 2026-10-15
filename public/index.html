@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESAC Live Telemetry & Scoring Tracker</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root { --primary: #003366; --accent: #ffcc00; --bg: #f4f6f9; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #333; }
+        header { background: var(--primary); color: white; padding: 15px 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .badge { background: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
+        .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-top: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        
+        .scoreboard { display: flex; justify-content: space-around; align-items: center; background: #111; color: white; padding: 20px; border-radius: 8px; }
+        .score { font-size: 3rem; font-weight: bold; color: var(--accent); }
+        .team { font-size: 1.2rem; text-align: center; }
+
+        button { background: var(--primary); color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #002244; }
+        input, select { padding: 8px; margin-right: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f0f0f0; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h2>MESAC Tournament Results Tracker</h2>
+        <span class="badge">LIVE UPDATING</span>
+    </header>
+
+    <div class="grid">
+        <div>
+            <!-- Live Match Dashboard -->
+            <div class="card">
+                <h3>Live Match: Varsity Basketball</h3>
+                <div class="scoreboard">
+                    <div class="team">
+                        <div id="teamA">Dubai Falcons</div>
+                        <div class="score" id="scoreA">42</div>
+                    </div>
+                    <div>VS</div>
+                    <div class="team">
+                        <div id="teamB">Abu Dhabi Vipers</div>
+                        <div class="score" id="scoreB">38</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Coach Scoring Panel -->
+            <div class="card">
+                <h3>Coach / Official Control Panel</h3>
+                <p>Simulate official game input:</p>
+                <input type="number" id="inputScoreA" value="43" placeholder="Team A Score" style="width: 100px;">
+                <input type="number" id="inputScoreB" value="38" placeholder="Team B Score" style="width: 100px;">
+                <input type="text" id="playerName" placeholder="Player Name/No.">
+                <button onclick="updateScore()">Update Score</button>
+            </div>
+
+            <!-- Historical Records -->
+            <div class="card">
+                <h3>Conference Records & Historic Champions</h3>
+                <table>
+                    <thead>
+                        <tr><th>Sport</th><th>Event / Title</th><th>Holder</th><th>Record</th><th>Year</th></tr>
+                    </thead>
+                    <tbody id="recordsTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div>
+            <!-- Viper Token Prediction Poll -->
+            <div class="card">
+                <h3>Crowd MVP / Winner Poll</h3>
+                <p>Stake Viper Tokens (Non-Gambling):</p>
+                <select id="voteSelection">
+                    <option value="Dubai Falcons">Dubai Falcons</option>
+                    <option value="Abu Dhabi Vipers">Abu Dhabi Vipers</option>
+                </select>
+                <input type="number" id="tokenAmount" value="10" min="1" style="width: 60px;">
+                <button onclick="castVote()">Vote</button>
+                <h4>Current Poll Standings:</h4>
+                <div id="pollResults">Cast a vote to view live distribution.</div>
+            </div>
+
+            <!-- Gate Entry Verification -->
+            <div class="card">
+                <h3>Gate Scan Verification</h3>
+                <input type="text" id="passCode" placeholder="Enter Pass Code (e.g. MESAC-2026-X)">
+                <button onclick="verifyGatePass()">Scan Gate Pass</button>
+                <p id="gateResult" style="font-weight: bold; margin-top: 10px;"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        const activeMatchId = 'm1';
+
+        // Join match channel
+        socket.emit('join_match', activeMatchId);
+
+        // Listen for live socket score updates
+        socket.on('score_updated', (data) => {
+            document.getElementById('scoreA').innerText = data.team_a_score;
+            document.getElementById('scoreB').innerText = data.team_b_score;
+        });
+
+        // Listen for poll updates
+        socket.on('poll_updated', (data) => {
+            renderPoll(data.pollResults);
+        });
+
+        async function updateScore() {
+            const scoreA = document.getElementById('inputScoreA').value;
+            const scoreB = document.getElementById('inputScoreB').value;
+            const player = document.getElementById('playerName').value;
+
+            await fetch(`/api/matches/${activeMatchId}/score`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    team_a_score: parseInt(scoreA),
+                    team_b_score: parseInt(scoreB),
+                    player_name: player,
+                    event_type: 'SCORE'
+                })
+            });
+        }
+
+        async function castVote() {
+            const selection = document.getElementById('voteSelection').value;
+            const tokens = parseInt(document.getElementById('tokenAmount').value);
+
+            const res = await fetch('/api/predictions/vote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matchId: activeMatchId, selection, tokens })
+            });
+            const data = await res.json();
+            if (data.pollResults) renderPoll(data.pollResults);
+        }
+
+        function renderPoll(results) {
+            let html = '<ul>';
+            results.forEach(r => {
+                html += `<li><strong>${r.selection}</strong>: ${r.total_tokens} Tokens</li>`;
+            });
+            html += '</ul>';
+            document.getElementById('pollResults').innerHTML = html;
+        }
+
+        async function verifyGatePass() {
+            const passCode = document.getElementById('passCode').value;
+            const res = await fetch('/api/gate/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ passCode })
+            });
+            const data = await res.json();
+            const output = document.getElementById('gateResult');
+            output.innerText = `Status: ${data.status} | Access: ${data.gateAccess}`;
+            output.style.color = data.status === 'VALID' ? 'green' : 'red';
+        }
+
+        async function loadRecords() {
+            const res = await fetch('/api/records');
+            const data = await res.json();
+            const tbody = document.getElementById('recordsTable');
+            tbody.innerHTML = '';
+            data.records.forEach(r => {
+                tbody.innerHTML += `<tr><td>${r.sport_name}</td><td>${r.event_name}</td><td>${r.holder_name}</td><td>${r.record_value}</td><td>${r.year_set}</td></tr>`;
+            });
+        }
+
+        loadRecords();
+    </script>
+</body>
+</html>
