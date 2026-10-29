@@ -1,4 +1,4 @@
-package main.java.com.mesac.model;
+package com.mesac.model;
 
 import jakarta.persistence.*;
 import java.util.UUID;

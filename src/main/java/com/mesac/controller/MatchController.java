@@ -1,4 +1,4 @@
-package main.java.com.mesac.controller;
+package com.mesac.controller;
 
 import com.mesac.model.Match;
 import com.mesac.service.MatchService;

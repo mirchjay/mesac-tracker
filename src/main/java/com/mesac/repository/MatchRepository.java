@@ -1,4 +1,4 @@
-package main.java.com.mesac.repository;
+package com.mesac.repository;
 
 import com.mesac.model.Match;
 import org.springframework.data.jpa.repository.JpaRepository;
