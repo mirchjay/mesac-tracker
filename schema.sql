@@ -1,71 +1,56 @@
--- Users Table
+-- MESAC Tracker SQLite Schema (Updated to match server.js API endpoints)
+
 CREATE TABLE IF NOT EXISTS users (
-    user_id VARCHAR(36) PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(100) NOT NULL UNIQUE,
-    role VARCHAR(20) NOT NULL DEFAULT 'SPECTATOR',
-    viper_tokens INT NOT NULL DEFAULT 100,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('ADMIN', 'COACH', 'STUDENT')),
+    token_balance INTEGER DEFAULT 10
 );
 
--- Sports Table
 CREATE TABLE IF NOT EXISTS sports (
-    sport_id VARCHAR(36) PRIMARY KEY,
-    sport_name VARCHAR(50) NOT NULL,
-    category VARCHAR(20) NOT NULL -- 'TIMED_EVENT' or 'TEAM_MATCH'
+    sport_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('JV Boys', 'JV Girls', 'Varsity Boys', 'Varsity Girls'))
 );
 
--- Matches Table
 CREATE TABLE IF NOT EXISTS matches (
-    match_id VARCHAR(36) PRIMARY KEY,
-    sport_id VARCHAR(36) REFERENCES sports(sport_id),
-    team_a_name VARCHAR(50) NOT NULL,
-    team_b_name VARCHAR(50) NOT NULL,
-    team_a_score INT DEFAULT 0,
-    team_b_score INT DEFAULT 0,
-    status VARCHAR(20) NOT NULL DEFAULT 'UPCOMING', -- 'UPCOMING', 'LIVE', 'COMPLETED'
-    livestream_url VARCHAR(255),
-    start_time TIMESTAMP NOT NULL
+    match_id TEXT PRIMARY KEY,
+    sport_id TEXT,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    team_a_score INTEGER DEFAULT 0,
+    team_b_score INTEGER DEFAULT 0,
+    status TEXT NOT NULL CHECK(status IN ('UPCOMING', 'LIVE', 'DONE')),
+    FOREIGN KEY (sport_id) REFERENCES sports(sport_id)
 );
 
--- Match Events (Penalties, Substitutions, Scores)
 CREATE TABLE IF NOT EXISTS match_events (
-    event_id VARCHAR(36) PRIMARY KEY,
-    match_id VARCHAR(36) REFERENCES matches(match_id),
-    event_type VARCHAR(30) NOT NULL, -- 'SCORE', 'PENALTY', 'SUBSTITUTION'
-    player_name VARCHAR(100),
+    event_id TEXT PRIMARY KEY,
+    match_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    player_name TEXT DEFAULT 'N/A',
     details TEXT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (match_id) REFERENCES matches(match_id)
 );
 
--- Predictions & Viper Token Votes
 CREATE TABLE IF NOT EXISTS prediction_votes (
-    vote_id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) REFERENCES users(user_id),
-    match_id VARCHAR(36) REFERENCES matches(match_id),
-    vote_type VARCHAR(30) NOT NULL, -- 'MATCH_WINNER', 'CROWD_MVP'
-    selection VARCHAR(100) NOT NULL,
-    tokens_staked INT NOT NULL
+    vote_id TEXT PRIMARY KEY,
+    user_id TEXT,
+    match_id TEXT NOT NULL,
+    vote_type TEXT,
+    selection TEXT NOT NULL,
+    tokens_staked INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (match_id) REFERENCES matches(match_id)
 );
 
--- Historic Records Table
 CREATE TABLE IF NOT EXISTS records (
-    record_id VARCHAR(36) PRIMARY KEY,
-    sport_name VARCHAR(50) NOT NULL,
-    event_name VARCHAR(100) NOT NULL,
-    holder_name VARCHAR(100) NOT NULL,
-    record_value VARCHAR(50) NOT NULL,
-    year_set INT NOT NULL
+    record_id TEXT PRIMARY KEY,
+    record_holder TEXT NOT NULL,
+    record_value TEXT,
+    sport_id TEXT,
+    year_set INTEGER NOT NULL,
+    FOREIGN KEY (sport_id) REFERENCES sports(sport_id)
 );
-
--- Seed Initial Demo Data
-INSERT INTO sports (sport_id, sport_name, category) VALUES 
-('s1', 'Varsity Basketball', 'TEAM_MATCH'),
-('s2', 'Swimming 100m Freestyle', 'TIMED_EVENT');
-
-INSERT INTO matches (match_id, sport_id, team_a_name, team_b_name, team_a_score, team_b_score, status, livestream_url, start_time) VALUES 
-('m1', 's1', 'Dubai Falcons', 'Abu Dhabi Vipers', 42, 38, 'LIVE', 'https://www.youtube.com/embed/live_stream?channel=MESAC', CURRENT_TIMESTAMP);
-
-INSERT INTO records (record_id, sport_name, event_name, holder_name, record_value, year_set) VALUES 
-('r1', 'Swimming', '100m Freestyle', 'Alex Rivera (ASD)', '51.82s', 2025),
-('r2', 'Varsity Basketball', 'Season Champions', 'Dubai American Academy', 'Undefeated (12-0)', 2025);

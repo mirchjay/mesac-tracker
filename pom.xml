@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="[suspicious link removed]"
-         xmlns:xsi="[suspicious link removed]"
-         xsi:schemaLocation="[suspicious link removed] [suspicious link removed]">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <groupId>com.mesac</groupId>
     <artifactId>mesac-tracker</artifactId>
     <version>0.0.1-SNAPSHOT</version>
@@ -21,32 +22,45 @@
     </properties>
 
     <dependencies>
-        <!-- Spring Boot Web for Controllers & REST -->
+        <!-- Spring Boot Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Data JPA for Repositories -->
+        <!-- Spring Data JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
-        <!-- Thymeleaf for HTML UI Rendering -->
+        <!-- Thymeleaf View Template Engine -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
-        <!-- H2 Database for Local Development -->
+        <!-- H2 In-Memory Database (Runtime) -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
 
-        <!-- DevTools for auto-restart during testing -->
+        <!-- SQLite JDBC Driver (Fixes "Cannot load driver class: org.sqlite.JDBC") -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.45.1.0</version>
+        </dependency>
+
+        <!-- Hibernate Dialect for SQLite -->
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-community-dialects</artifactId>
+        </dependency>
+
+        <!-- DevTools for Auto-Restart -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
