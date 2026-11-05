@@ -1,34 +1,37 @@
 package com.mesac.model;
 
 import jakarta.persistence.*;
-import java.util.UUID;
 
 @Entity
 @Table(name = "sports")
 public class Sport {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
-    private UUID sportId;
+    @Column(name = "sport_id")
+    private String sportId;
 
+    @Column(nullable = false)
     private String name;
+
+    @Column(nullable = false)
     private String category;
 
-    // Default constructor (Required by JPA)
+    // Default Constructor
     public Sport() {}
 
-    // Parameterized constructor
-    public Sport(String name, String category) {
+    // Parameterized Constructor
+    public Sport(String sportId, String name, String category) {
+        this.sportId = sportId;
         this.name = name;
         this.category = category;
     }
 
     // Getters and Setters
-    public UUID getSportId() {
+    public String getSportId() {
         return sportId;
     }
 
-    public void setSportId(UUID sportId) {
+    public void setSportId(String sportId) {
         this.sportId = sportId;
     }
 

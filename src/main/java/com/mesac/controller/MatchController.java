@@ -1,40 +1,54 @@
 package com.mesac.controller;
 
 import com.mesac.model.Match;
-import com.mesac.service.MatchService;
+import com.mesac.repository.MatchRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.UUID;
+
 @Controller
 public class MatchController {
 
-    private final MatchService matchService;
-
     @Autowired
-    public MatchController(MatchService matchService) {
-        this.matchService = matchService;
-    }
+    private MatchRepository matchRepository;
 
     @GetMapping("/")
-    public String homePage() {
+    public String index(Model model) {
+        List<Match> matches = matchRepository.findAll();
+        model.addAttribute("matches", matches);
+        model.addAttribute("totalMatches", matches.size());
+        model.addAttribute("liveCount", matches.stream().filter(m -> "LIVE".equalsIgnoreCase(m.getStatus())).count());
+        model.addAttribute("upcomingCount", matches.stream().filter(m -> "UPCOMING".equalsIgnoreCase(m.getStatus())).count());
+        model.addAttribute("completedCount", matches.stream().filter(m -> "DONE".equalsIgnoreCase(m.getStatus())).count());
         return "index";
     }
 
-    @GetMapping("/matches")
-    public String listMatches(Model model) {
-        model.addAttribute("matches", matchService.getAllMatches());
-        model.addAttribute("newMatch", new Match());
-        return "matches";
+    @PostMapping("/api/matches/add")
+    public String createMatch(@RequestParam String sportName,
+                              @RequestParam String homeTeam, 
+                              @RequestParam String awayTeam, 
+                              @RequestParam(defaultValue = "UPCOMING") String status) {
+        String customId = "m-" + UUID.randomUUID().toString().substring(0, 5);
+        Match newMatch = new Match(customId, sportName, homeTeam, awayTeam, 0, 0, status);
+        matchRepository.save(newMatch);
+        return "redirect:/";
     }
 
-    @PostMapping("/matches/create")
-    public String createMatch(@ModelAttribute Match newMatch) {
-        if (newMatch.getStatus() == null || newMatch.getStatus().isEmpty()) {
-            newMatch.setStatus("LIVE");
-        }
-        matchService.saveMatch(newMatch);
-        return "redirect:/matches";
+    @PostMapping("/api/matches/score")
+    public String updateScore(@RequestParam String matchId, 
+                              @RequestParam Integer homeScore, 
+                              @RequestParam Integer awayScore,
+                              @RequestParam String status) {
+        matchRepository.findById(matchId).ifPresent(match -> {
+            match.setHomeScore(homeScore);
+            match.setAwayScore(awayScore);
+            match.setStatus(status);
+            matchRepository.save(match);
+        });
+        return "redirect:/";
     }
 }

@@ -2,12 +2,12 @@ package com.mesac.repository;
 
 import com.mesac.model.Match;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 import java.util.List;
-import java.util.UUID;
 
-public interface MatchRepository extends JpaRepository<Match, UUID> {
+@Repository
+public interface MatchRepository extends JpaRepository<Match, String> {
     
-    // Custom query methods
     List<Match> findByStatus(String status);
-    List<Match> findBySportId(UUID sportId);
+    List<Match> findBySportName(String sportName);
 }

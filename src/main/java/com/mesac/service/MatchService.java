@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 @Service
 public class MatchService {
@@ -23,11 +22,7 @@ public class MatchService {
         return matchRepository.findAll();
     }
 
-    public List<Match> getLiveMatches() {
-        return matchRepository.findByStatus("LIVE");
-    }
-
-    public Optional<Match> getMatchById(UUID matchId) {
+    public Optional<Match> getMatchById(String matchId) {
         return matchRepository.findById(matchId);
     }
 
@@ -35,12 +30,23 @@ public class MatchService {
         return matchRepository.save(match);
     }
 
-    public Match updateScore(UUID matchId, Integer homeScore, Integer awayScore) {
-        Match match = matchRepository.findById(matchId)
-                .orElseThrow(() -> new RuntimeException("Match not found with id: " + matchId));
-        
-        match.setHomeScore(homeScore);
-        match.setAwayScore(awayScore);
-        return matchRepository.save(match);
+    public Match updateScore(String matchId, Integer homeScore, Integer awayScore, String status) {
+        Optional<Match> optionalMatch = matchRepository.findById(matchId);
+        if (optionalMatch.isPresent()) {
+            Match match = optionalMatch.get();
+            match.setHomeScore(homeScore);
+            match.setAwayScore(awayScore);
+            match.setStatus(status);
+            return matchRepository.save(match);
+        }
+        throw new IllegalArgumentException("Match not found with ID: " + matchId);
+    }
+
+    public List<Match> getMatchesByStatus(String status) {
+        return matchRepository.findByStatus(status);
+    }
+
+    public List<Match> getMatchesBySportName(String sportName) {
+        return matchRepository.findBySportName(sportName);
     }
 }
