@@ -48,8 +48,12 @@ public class MatchEvent {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    /** "Admin" or "Coach": who made this change (empty for sample data). */
+    /** Name of the admin or coach who made this change (empty for sample data). */
     private String actor;
+
+    /** Their account id, for the activity log. */
+    @Column(name = "actor_id")
+    private Long actorId;
 
     /** True once this score change has been reversed with Undo. */
     private boolean undone = false;
@@ -136,6 +140,9 @@ public class MatchEvent {
 
     public String getActor() { return actor; }
     public void setActor(String actor) { this.actor = actor; }
+
+    public Long getActorId() { return actorId; }
+    public void setActorId(Long actorId) { this.actorId = actorId; }
 
     public boolean isUndone() { return undone; }
     public void setUndone(boolean undone) { this.undone = undone; }

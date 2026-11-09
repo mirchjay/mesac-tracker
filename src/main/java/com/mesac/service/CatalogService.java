@@ -32,14 +32,16 @@ public class CatalogService {
     private final ConferenceRecordRepository records;
     private final MatchRepository matches;
     private final LiveHub live;
+    private final ActivityService activity;
 
     public CatalogService(TeamRepository teams, SportRepository sports, ConferenceRecordRepository records,
-                          MatchRepository matches, LiveHub live) {
+                          MatchRepository matches, LiveHub live, ActivityService activity) {
         this.teams = teams;
         this.sports = sports;
         this.records = records;
         this.matches = matches;
         this.live = live;
+        this.activity = activity;
     }
 
     // ------------------------------------------------------------------ teams
@@ -62,7 +64,9 @@ public class CatalogService {
         team.setShortName(code);
         team.setCity(trimToNull(req.city()));
         team.setColor(color(req.color(), "#5B8DEF"));
+        boolean isNew = team.getId() == null;
         teams.save(team);
+        activity.record((isNew ? "Added team " : "Edited team ") + team.getShortName() + " (" + team.getName() + ")");
         live.publish("teams", teams());
         return team;
     }
@@ -73,6 +77,7 @@ public class CatalogService {
             throw ApiException.conflict(team.getShortName() + " still has matches. Delete those matches first.");
         }
         teams.delete(team);
+        activity.record("Deleted team " + team.getShortName() + " (" + team.getName() + ")");
         live.publish("teams", teams());
     }
 
@@ -107,7 +112,9 @@ public class CatalogService {
         sport.setPeriodCount(periods);
         sport.setAllowsDraw(Boolean.TRUE.equals(req.allowsDraw()));
         sport.setMatchMinutes(minutes);
+        boolean isNew = sport.getId() == null;
         sports.save(sport);
+        activity.record((isNew ? "Added sport " : "Edited sport ") + sport.getName());
         live.publish("sports", sports());
         return sport;
     }
@@ -118,6 +125,7 @@ public class CatalogService {
             throw ApiException.conflict(sport.getName() + " still has matches or records. Remove those first.");
         }
         sports.delete(sport);
+        activity.record("Deleted sport " + sport.getName());
         live.publish("sports", sports());
     }
 
@@ -142,13 +150,17 @@ public class CatalogService {
         record.setSchool(trimToNull(req.school()));
         record.setRecordValue(trimToNull(req.recordValue()));
         record.setYearSet(year);
+        boolean isNew = record.getId() == null;
         records.save(record);
+        activity.record((isNew ? "Added record \"" : "Edited record \"") + record.getTitle() + "\" (" + record.getHolder() + ")");
         live.publish("records", Map.of("changed", true));
         return record;
     }
 
     public void deleteRecord(Long id) {
-        records.delete(records.findById(id).orElseThrow(() -> ApiException.notFound("Record")));
+        ConferenceRecord record = records.findById(id).orElseThrow(() -> ApiException.notFound("Record"));
+        records.delete(record);
+        activity.record("Deleted record \"" + record.getTitle() + "\"");
         live.publish("records", Map.of("changed", true));
     }
 

@@ -1,25 +1,44 @@
 package com.mesac.web;
 
+import com.mesac.model.StaffRole;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.io.Serializable;
+
 /**
- * Who is using the console right now: "Admin" or "Coach".
- * The page sends it in the X-Mesac-Role header (from the switch at the top of the screen).
- * There is no sign-in yet, so this is a label for the timeline, not security.
+ * Who is signed in for the current request (stored in the login session).
+ * Used to stamp names on the match timeline and the activity log.
  */
 public final class Actor {
 
-    public static final String HEADER = "X-Mesac-Role";
+    public static final String SESSION_KEY = "mesac.staff";
+
+    /** What we keep in the session after a successful login. */
+    public record SignedIn(Long id, String name, String username, StaffRole role) implements Serializable {}
 
     private Actor() {}
 
-    public static String current() {
+    public static SignedIn current() {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs)) return null;
-        HttpServletRequest request = attrs.getRequest();
-        String role = request.getHeader(HEADER);
-        if (role == null || role.isBlank()) return null;
-        return role.trim().equalsIgnoreCase("COACH") ? "Coach" : "Admin";
+        return from(attrs.getRequest());
+    }
+
+    public static SignedIn from(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        if (session == null) return null;
+        return session.getAttribute(SESSION_KEY) instanceof SignedIn who ? who : null;
+    }
+
+    public static String name() {
+        SignedIn who = current();
+        return who == null ? null : who.name();
+    }
+
+    public static Long id() {
+        SignedIn who = current();
+        return who == null ? null : who.id();
     }
 }

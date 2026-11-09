@@ -4,7 +4,7 @@
    one orange line for "now". Team colours appear only as small marks.
    ===================================================================== */
 
-   :root {
+:root {
     --bg: #FFFFFF;
     --ink: #121826;
     --muted: #5B6472;
@@ -56,9 +56,6 @@ kbd { font-family: var(--font); font-size: 0.7rem; line-height: 1; padding: 2px 
 .nav a.on { color: var(--ink); background: var(--soft); font-weight: 600; }
 .top-right { display: flex; align-items: center; gap: 10px; }
 .badge { height: 32px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 16px; background: var(--ink); color: #FFFFFF; font-size: var(--t-sm); font-weight: 600; }
-.role { display: inline-flex; padding: 3px; background: var(--soft); border-radius: 22px; }
-.role button { height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: transparent; color: var(--muted); font-weight: 600; font-size: var(--t-sm); cursor: pointer; }
-.role button.on { background: var(--ink); color: #FFFFFF; }
 .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--r); color: var(--muted); text-decoration: none; }
 .icon-btn:hover { background: var(--soft); color: var(--ink); }
 .conn { width: 10px; height: 10px; border-radius: 50%; background: var(--outline); }
@@ -356,4 +353,28 @@ body.has-dock .toasts { bottom: auto; top: calc(var(--top-h) + 12px); }
 }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+/* ---------------------------------------------------------- accounts */
+.account { display: flex; align-items: center; }
+.who-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #FFFFFF; color: var(--ink); font: inherit; font-weight: 600; font-size: var(--t-sm); cursor: pointer; }
+.who-btn:hover { background: var(--soft); }
+.who-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.who-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav a[hidden] { display: none; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.inline { display: flex; gap: 8px; }
+.inline input { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.form-error { color: var(--bad); margin: 10px 0 0; min-height: 1.4em; font-size: var(--t-sm); }
+.bad-text { color: var(--bad); }
+.staff-table tr.off td { color: var(--muted); }
+.staff-table .row-acts { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+.sub-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 40px 0 12px; }
+.sub-row h2.sub { margin: 0; }
+.list.activity li { grid-template-columns: 110px 1fr auto; }
+.list.activity .time small { display: block; color: var(--muted); font-size: var(--t-xs); }
+.list.activity .what { min-width: 0; }
+@media (max-width: 640px) {
+    .who-name { max-width: 90px; }
+    .list.activity li { grid-template-columns: 1fr; }
 }

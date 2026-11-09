@@ -3,6 +3,7 @@ package com.mesac.dto;
 import com.mesac.model.Division;
 import com.mesac.model.MatchStatus;
 import com.mesac.model.Side;
+import com.mesac.model.StaffRole;
 
 import java.time.LocalDateTime;
 
@@ -33,4 +34,12 @@ public final class Requests {
 
     public record RecordRequest(Long sportId, Division division, String title, String holder,
                                 String school, String recordValue, Integer yearSet) {}
+
+    public record LoginRequest(String username, String password) {}
+
+    public record PasswordChangeRequest(String current, String next) {}
+
+    public record PasswordResetRequest(String password) {}
+
+    public record StaffRequest(String name, String username, String password, StaffRole role, Boolean active) {}
 }

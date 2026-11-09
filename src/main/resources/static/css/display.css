@@ -3,7 +3,7 @@
    The admin console uses admin.css; this file only styles the TV page.
    ===================================================================== */
 
-   :root {
+:root {
     /* Base palette */
     --court: #10243E;        /* page */
     --court-deep: #0A1A2E;   /* rail, ribbon, scoreboard glass */

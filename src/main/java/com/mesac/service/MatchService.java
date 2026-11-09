@@ -30,15 +30,17 @@ public class MatchService {
     private final SportRepository sports;
     private final TeamRepository teams;
     private final LiveHub live;
+    private final ActivityService activity;
 
     public MatchService(MatchRepository matches, MatchEventRepository events, PollVoteRepository votes,
-                        SportRepository sports, TeamRepository teams, LiveHub live) {
+                        SportRepository sports, TeamRepository teams, LiveHub live, ActivityService activity) {
         this.matches = matches;
         this.events = events;
         this.votes = votes;
         this.sports = sports;
         this.teams = teams;
         this.live = live;
+        this.activity = activity;
     }
 
     // ------------------------------------------------------------------ reading
@@ -99,12 +101,14 @@ public class MatchService {
         Match match = get(id);
         applyDetails(match, req);
         matches.save(match);
+        activity.record("Edited details, " + describe(match), match.getId());
         live.publish("match", match);
         return match;
     }
 
     public void delete(Long id) {
         Match match = get(id);
+        activity.record("Deleted match, " + describe(match), match.getId());
         events.deleteByMatch_Id(id);
         votes.deleteByMatch_Id(id);
         matches.delete(match);
@@ -216,8 +220,10 @@ public class MatchService {
         if (message == null || message.isBlank()) throw ApiException.badRequest("Write a note first.");
         String text = message.trim();
         MatchEvent event = new MatchEvent(match, EventType.NOTE, text.length() > 240 ? text.substring(0, 240) : text);
-        event.setActor(Actor.current());
+        event.setActor(Actor.name());
+        event.setActorId(Actor.id());
         events.save(event);
+        activity.record("Note \"" + event.getMessage() + "\", " + describe(match), match.getId());
         live.publish("event", event);
         return event;
     }
@@ -261,7 +267,7 @@ public class MatchService {
     }
 
     public PollSummary resetPoll(Long id) {
-        get(id);
+        activity.record("Cleared fan picks, " + describe(get(id)), id);
         votes.deleteByMatch_Id(id);
         return publishPoll(id);
     }
@@ -278,9 +284,11 @@ public class MatchService {
         event.setHomeAfter(match.getHomeScore());
         event.setAwayAfter(match.getAwayScore());
         event.setCurrentPeriod(match.getCurrentPeriod());
-        event.setActor(Actor.current());
+        event.setActor(Actor.name());
+        event.setActorId(Actor.id());
         matches.save(match);
         events.save(event);
+        activity.record(event.getMessage() + ", " + describe(match), match.getId());
         live.publish("match", match);
         live.publish("event", event);
         return match;
@@ -288,13 +296,21 @@ public class MatchService {
 
     private void log(Match match, EventType type, String message) {
         MatchEvent event = new MatchEvent(match, type, message);
-        event.setActor(Actor.current());
+        event.setActor(Actor.name());
+        event.setActorId(Actor.id());
         events.save(event);
+        activity.record(message + ", " + describe(match), match.getId());
         live.publish("event", event);
     }
 
     private void requireLive(Match match, String message) {
         if (match.getStatus() != MatchStatus.LIVE) throw ApiException.conflict(message);
+    }
+
+    /** "M-012 ACS v ABA (Basketball, Varsity Boys)" for the activity log. */
+    private static String describe(Match m) {
+        return m.getCode() + " " + m.getHomeTeam().getShortName() + " v " + m.getAwayTeam().getShortName()
+                + " (" + m.getSport().getName() + ", " + m.getDivisionLabel() + ")";
     }
 
     /** "Quarter 3", or "OT 1" once regular periods are used up. */

@@ -2,7 +2,7 @@
    MESAC big screen - read-only scoreboard for a TV or projector.
    Open /display on the venue screen; it updates itself live.
    ===================================================================== */
-   (() => {
+(() => {
     'use strict';
 
     let matches = [];

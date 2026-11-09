@@ -14,6 +14,14 @@ public final class Views {
 
     public record Option(String value, String label) {}
 
+    /** The signed-in account (null means User view). */
+    public record Me(Long id, String name, String username, String role) {}
+
+    /** An account on the Staff page, with how much they've done. */
+    public record StaffView(Long id, String name, String username, String role, boolean active,
+                            java.time.LocalDateTime createdAt, java.time.LocalDateTime lastLoginAt,
+                            long actions, java.time.LocalDateTime lastActionAt) {}
+
     public record PollSummary(long homeTokens, long awayTokens, int homeVotes, int awayVotes) {}
 
     /** Fan picks for one match. mine is "HOME", "AWAY" or null (this fan hasn't picked). */

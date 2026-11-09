@@ -3,20 +3,24 @@
    Plain JavaScript, no libraries. Talks to the Spring Boot API in /api
    and listens to /api/stream so every open screen stays in sync.
 
-   Two views, picked with the switch at the top right (no sign-in yet):
-   - Admin (admins and coaches): everything.
-   - User (players, parents, fans): the same timeline, schedule,
-     standings, teams and records, read-only. On upcoming matches a user
-     can pick who they think will win and see what everyone else picked.
+   Everyone starts in the User view: the timeline, schedule, standings,
+   teams and records, read-only, plus "Who will win?" picks on upcoming
+   matches. Coaches and admins log in (top right) to get every tool.
+   Admin accounts also get the Staff page: coach logins and the activity
+   log. The server checks every change, so hidden buttons are not the
+   only lock.
    ===================================================================== */
-   (() => {
+(() => {
     'use strict';
 
     // ------------------------------------------------------------------ state
     const S = {
         sports: [], teams: [], matches: [], events: [], records: [], divisions: [],
         view: 'day',
-        role: 'ADMIN',
+        me: null,                 // signed-in account { id, name, username, role } or null
+        staff: null,              // Staff page: accounts
+        activity: null,           // Staff page: activity log
+        activityFor: 'all',
         day: startOfDay(new Date()),
         sel: null,                // selected match id (Day line)
         dockEvents: [],
@@ -31,12 +35,12 @@
         everConnected: false,
     };
 
-    const VIEWS = ['day', 'schedule', 'standings', 'teams', 'records'];
+    const VIEWS = ['day', 'schedule', 'standings', 'teams', 'records', 'staff'];
     const SWATCHES = ['#C8102E', '#E07A12', '#F5C542', '#2FBF71', '#0F8A6B', '#0E7FA8', '#1F5FBF', '#6C3FC5', '#B5179E', '#5B6B7D'];
     const MIN = 60000, HOUR = 3600000;
 
-    try { if (localStorage.getItem('mesac-view') === 'USER') S.role = 'USER'; } catch (_) { /* storage off */ }
-    const isAdmin = () => S.role === 'ADMIN';
+    const canEdit = () => !!S.me;                                   // coach or admin
+    const isAdminAccount = () => !!S.me && S.me.role === 'ADMIN';   // can manage accounts
 
     // One random id per browser, so each user gets one pick per match.
     const voter = (() => {
@@ -64,11 +68,18 @@
     };
 
     async function api(method, url, body) {
-        const headers = { 'X-Mesac-Role': S.role };
+        const headers = {};
         if (body !== undefined) headers['Content-Type'] = 'application/json';
-        const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+        const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, credentials: 'same-origin' });
         let data = null;
         try { data = await res.json(); } catch (_) { /* empty body */ }
+        if (res.status === 401 && S.me && !url.startsWith('/api/auth/')) {
+            // Signed out on the server (session timed out or account turned off).
+            S.me = null;
+            closeDrawer();
+            if (S.view === 'staff') location.hash = '#/day';
+            queueRender();
+        }
         if (!res.ok) throw new Error((data && data.error) || `Something went wrong (${res.status}).`);
         return data;
     }
@@ -197,11 +208,13 @@
 
     function renderTop() {
         $$('#nav a').forEach((a) => a.classList.toggle('on', a.dataset.view === S.view));
-        $$('#role button').forEach((b) => {
-            const on = b.dataset.v === S.role;
-            b.classList.toggle('on', on);
-            b.setAttribute('aria-pressed', String(on));
-        });
+        const staffLink = $('#staffLink');
+        if (staffLink) staffLink.hidden = !isAdminAccount();
+        const acct = $('#account');
+        const html = S.me
+            ? `<button class="who-btn" data-action="account" title="Account and log out"><span class="who-name">${esc(S.me.name)}</span><span class="tag ${S.me.role === 'ADMIN' ? 'live' : ''}">${S.me.role === 'ADMIN' ? 'Admin' : 'Coach'}</span></button>`
+            : '<button class="btn sm dark" data-action="login">Log in</button>';
+        if (acct && acct._last !== html) { acct.innerHTML = html; acct._last = html; }
         const conn = $('#conn');
         conn.classList.toggle('on', S.connected);
         conn.classList.toggle('off', !S.connected && S.everConnected);
@@ -216,7 +229,7 @@
         const active = document.activeElement;
         const keep = active && view.contains(active) && active.id
             ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
-        view.innerHTML = ({ day: viewDay, schedule: viewSchedule, standings: viewStandings, teams: viewTeams, records: viewRecords }[S.view] || viewDay)();
+        view.innerHTML = ({ day: viewDay, schedule: viewSchedule, standings: viewStandings, teams: viewTeams, records: viewRecords, staff: viewStaff }[S.view] || viewDay)();
         if (keep) {
             const el = document.getElementById(keep.id);
             if (el) {
@@ -268,8 +281,8 @@
                     <p class="tally">${tally}</p>
                 </div>
                 <div class="head-actions">
-                    <span class="muted" style="font-size:var(--t-sm)">${isAdmin() ? 'Click a match to score it' : 'Click a match for details'}</span>
-                    ${isAdmin() ? '<button class="btn dark" data-action="new-match">New match <kbd>N</kbd></button>' : ''}
+                    <span class="muted" style="font-size:var(--t-sm)">${canEdit() ? 'Click a match to score it' : 'Click a match for details'}</span>
+                    ${canEdit() ? '<button class="btn dark" data-action="new-match">New match <kbd>N</kbd></button>' : ''}
                 </div>
             </div>
             <div class="filters">
@@ -281,8 +294,8 @@
             </div>
             ${list.length ? timeline(list, isToday) : `
                 <div class="empty">
-                    <div><strong>No matches on this day${f.sport !== 'all' || f.division !== 'all' ? ' for these filters' : ''}.</strong>Use the arrows to check another day${isAdmin() ? ', or add a match' : ''}.</div>
-                    ${isAdmin() ? '<button class="btn" data-action="new-match">New match</button>' : ''}
+                    <div><strong>No matches on this day${f.sport !== 'all' || f.division !== 'all' ? ' for these filters' : ''}.</strong>Use the arrows to check another day${canEdit() ? ', or add a match' : ''}.</div>
+                    ${canEdit() ? '<button class="btn" data-action="new-match">New match</button>' : ''}
                 </div>`}`;
     }
 
@@ -423,7 +436,7 @@
                 <div class="side ${s === 'AWAY' ? 'away' : ''} ${!upcoming && mine < theirs ? 'trail' : ''}">
                     <div class="who"><span class="sq" style="--c:${esc(team.color)}"></span>${esc(team.shortName)} <small>${esc(team.name)}</small></div>
                     <div class="big ${S.flash.has(`${m.id}-${s}`) ? 'flash' : ''}" aria-live="polite" aria-label="${esc(team.shortName)} score">${mine}</div>
-                    ${isAdmin() ? `<div class="pad">
+                    ${canEdit() ? `<div class="pad">
                         ${incs.map((n, i) => `<button data-action="score" data-id="${m.id}" data-side="${s}" data-delta="${n}" ${isLive ? '' : 'disabled'} aria-label="${esc(team.shortName)} plus ${n}">+${n}${keys[i] ? `<kbd>${keys[i]}</kbd>` : ''}</button>`).join('')}
                         <button class="minus" data-action="score" data-id="${m.id}" data-side="${s}" data-delta="-1" ${isLive && mine > 0 ? '' : 'disabled'} aria-label="${esc(team.shortName)} minus 1">−1<kbd>${s === 'HOME' ? 'A' : 'L'}</kbd></button>
                     </div>` : ''}
@@ -431,7 +444,7 @@
         };
 
         let mid;
-        if (!isAdmin()) {
+        if (!canEdit()) {
             if (upcoming) mid = `<div class="period">Starts ${esc(fmtTime(m.scheduledAt))}<small>${esc(fmtRel(toDate(m.scheduledAt)))}</small></div>`;
             else if (done) mid = `<div class="final">Final</div><div class="clock">Ended ${esc(fmtTime(m.endedAt))}</div>`;
             else mid = `<div class="period">${esc(periodLabel(m))}<small>${m.currentPeriod > m.sport.periodCount ? 'Extra time' : `${m.currentPeriod} of ${m.sport.periodCount}`}</small></div><div class="clock" id="dockClock" title="Time since start">${esc(elapsed(m.startedAt))}</div>`;
@@ -444,7 +457,7 @@
                 <div class="final">Final</div>
                 <div class="clock">Ended ${esc(fmtTime(m.endedAt))}</div>
                 <button class="btn" data-action="set-score" data-id="${m.id}">Correct score</button>
-                ${isAdmin() ? `<button class="btn quiet" data-action="reopen" data-id="${m.id}">Reopen match</button>` : ''}`;
+                ${canEdit() ? `<button class="btn quiet" data-action="reopen" data-id="${m.id}">Reopen match</button>` : ''}`;
         } else {
             mid = `
                 <div class="period">${esc(periodLabel(m))}<small>${m.currentPeriod > m.sport.periodCount ? 'Extra time' : `${m.currentPeriod} of ${m.sport.periodCount}`}</small></div>
@@ -460,7 +473,7 @@
 
         const p = S.dockPoll;
         let pulse = '';
-        if (p && p.homeVotes + p.awayVotes > 0 && (isAdmin() || !upcoming)) {
+        if (p && p.homeVotes + p.awayVotes > 0 && (canEdit() || !upcoming)) {
             const total = p.homeVotes + p.awayVotes;
             const hp = Math.round((p.homeVotes / total) * 100);
             pulse = `
@@ -468,7 +481,7 @@
                     <span style="flex-grow:${Math.max(p.homeVotes, 0.001)};background:${esc(m.homeTeam.color)}">${esc(m.homeTeam.shortName)} ${hp}%</span>
                     <span style="flex-grow:${Math.max(p.awayVotes, 0.001)};background:${esc(m.awayTeam.color)};justify-content:flex-end">${100 - hp}% ${esc(m.awayTeam.shortName)}</span>
                 </div>
-                <div class="pulse-legend"><span>Who fans think will win, from ${plural(total, 'pick')}</span>${isAdmin() ? `<button class="btn sm quiet danger" data-action="reset-poll" data-id="${m.id}">Clear picks</button>` : ''}</div>`;
+                <div class="pulse-legend"><span>Who fans think will win, from ${plural(total, 'pick')}</span>${canEdit() ? `<button class="btn sm quiet danger" data-action="reset-poll" data-id="${m.id}">Clear picks</button>` : ''}</div>`;
         }
 
         dock.innerHTML = `
@@ -477,14 +490,14 @@
                     <span class="what"><span class="dot" style="--c:${esc(m.sport.color)}"></span>${esc(m.sport.name)}, ${esc(m.divisionLabel)}${m.venue ? `, ${esc(m.venue)}` : ''}, ${esc(m.code)}</span>
                     ${tag(m)}
                     <span class="sp"></span>
-                    ${isAdmin() ? `<button class="btn sm quiet" data-action="edit-match" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-match" data-id="${m.id}">Delete</button>` : ''}
+                    ${canEdit() ? `<button class="btn sm quiet" data-action="edit-match" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-match" data-id="${m.id}">Delete</button>` : ''}
                     <button class="btn sm icon quiet" data-action="deselect" aria-label="Close scoring panel">${ICON.close}</button>
                 </div>
                 <div class="dock-body">
                     <div class="score">${side('HOME')}<div class="mid">${mid}</div>${side('AWAY')}</div>
                     <div class="log">
-                        ${!isAdmin() && upcoming ? pickBlock(m) : ''}
-                        ${isAdmin() ? `<form class="note" data-form="note">
+                        ${!canEdit() && upcoming ? pickBlock(m) : ''}
+                        ${canEdit() ? `<form class="note" data-form="note">
                             <input id="noteInput" type="text" name="message" maxlength="240" placeholder="Add a note, e.g. Timeout ACS" aria-label="Note">
                             <button class="btn" type="submit">Add</button>
                         </form>` : ''}
@@ -578,8 +591,8 @@
 
         return `
             <div class="head">
-                <div><h1>Schedule</h1><p>${plural(list.length, 'match', 'matches')}${any ? ' match these filters' : ' in the tournament'}.${isAdmin() ? '' : ' Switch to Admin to add or change matches.'}</p></div>
-                ${isAdmin() ? '<div class="head-actions"><button class="btn dark" data-action="new-match">New match <kbd>N</kbd></button></div>' : ''}
+                <div><h1>Schedule</h1><p>${plural(list.length, 'match', 'matches')}${any ? ' match these filters' : ' in the tournament'}.${canEdit() ? '' : ' Coaches and admins can log in to add or change matches.'}</p></div>
+                ${canEdit() ? '<div class="head-actions"><button class="btn dark" data-action="new-match">New match <kbd>N</kbd></button></div>' : ''}
             </div>
             <div class="filters">${sportChips(f.sport, 'filter-sport')}</div>
             <div class="filters">
@@ -609,7 +622,7 @@
                 <div class="res">${m.status === 'UPCOMING' ? '' : `${m.homeScore}–${m.awayScore}`}</div>
                 <div class="acts">
                     <button class="btn sm" data-action="goto" data-id="${m.id}">${m.status === 'LIVE' ? 'Score' : 'Open'}</button>
-                    ${isAdmin() ? `<button class="btn sm quiet" data-action="edit-match" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-match" data-id="${m.id}" aria-label="Delete ${esc(m.code)}">Delete</button>` : ''}
+                    ${canEdit() ? `<button class="btn sm quiet" data-action="edit-match" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-match" data-id="${m.id}" aria-label="Delete ${esc(m.code)}">Delete</button>` : ''}
                 </div>
             </li>`;
     }
@@ -673,7 +686,7 @@
     }
 
     function viewTeams() {
-        const admin = isAdmin();
+        const admin = canEdit();
         const teamTile = (t) => {
             const inner = `
                 <span class="wl" title="Wins and losses, all sports">${teamRecord(t.id)}</span>
@@ -686,7 +699,7 @@
         };
         return `
             <div class="head">
-                <div><h1>Teams</h1><p>${admin ? 'Click a team to edit it.' : 'Switch to Admin to add or edit teams and sports.'}</p></div>
+                <div><h1>Teams</h1><p>${admin ? 'Click a team to edit it.' : 'Log in to add or edit teams and sports.'}</p></div>
                 ${admin ? '<div class="head-actions"><button class="btn" data-action="new-sport">Add sport</button><button class="btn dark" data-action="new-team">Add team</button></div>' : ''}
             </div>
             <div class="teams">
@@ -707,7 +720,7 @@
 
     // --------------------------------------------------------------- records
     function viewRecords() {
-        const admin = isAdmin();
+        const admin = canEdit();
         const groups = [];
         S.records.forEach((r) => {
             const key = r.sport ? r.sport.id : 0;
@@ -717,7 +730,7 @@
         });
         return `
             <div class="head">
-                <div><h1>Records</h1><p>Conference bests.${admin ? '' : ' Switch to Admin to add or edit records.'}</p></div>
+                <div><h1>Records</h1><p>Conference bests.${admin ? '' : ' Log in to add or edit records.'}</p></div>
                 ${admin ? '<div class="head-actions"><button class="btn dark" data-action="new-record">Add record</button></div>' : ''}
             </div>
             ${groups.length ? groups.map((g) => `
@@ -768,9 +781,9 @@
         if (location.hash !== '#/day') location.hash = '#/day';
         selectMatch(m.id);
     }
-    function requireAdmin() {
-        if (isAdmin()) return true;
-        toast('That needs the Admin view. Switch at the top right.', { error: true });
+    function requireStaff() {
+        if (canEdit()) return true;
+        toast('Log in as a coach or admin to do that.', { error: true });
         return false;
     }
 
@@ -818,7 +831,7 @@
     const teamOptions = (selectedId) => S.teams.map((t) => `<option value="${t.id}" ${String(t.id) === String(selectedId) ? 'selected' : ''}>${esc(t.shortName)}, ${esc(t.name)}</option>`).join('');
 
     function matchForm(m) {
-        if (!requireAdmin()) return;
+        if (!requireStaff()) return;
         const editing = !!m;
         const sportId = m ? m.sport.id : (S.dayFilters.sport !== 'all' ? Number(S.dayFilters.sport) : S.sports[0] && S.sports[0].id);
         const division = m ? m.division : (S.dayFilters.division !== 'all' ? S.dayFilters.division : 'VARSITY_BOYS');
@@ -877,7 +890,7 @@
     }
 
     function teamForm(t) {
-        if (!requireAdmin()) return;
+        if (!requireStaff()) return;
         const editing = !!t;
         const color = t ? t.color : SWATCHES[Math.floor(Math.random() * SWATCHES.length)];
         const fields = `
@@ -907,7 +920,7 @@
     }
 
     function sportForm(s) {
-        if (!requireAdmin()) return;
+        if (!requireStaff()) return;
         const editing = !!s;
         const fields = `
             <label class="field"><span>Name</span><input type="text" name="name" value="${esc(s ? s.name : '')}" placeholder="Futsal" required></label>
@@ -939,7 +952,7 @@
     }
 
     function recordForm(r) {
-        if (!requireAdmin()) return;
+        if (!requireStaff()) return;
         const editing = !!r;
         const year = new Date().getFullYear();
         const fields = `
@@ -976,6 +989,175 @@
         });
     }
 
+    // ------------------------------------------------------- signing in
+    function loginDialog() {
+        openModal(`
+            <form class="modal" data-form="login" autocomplete="on">
+                <h3>Log in</h3>
+                <p>For coaches and admins. Everyone else can look around without logging in.</p>
+                <div class="stack">
+                    <label class="field"><span>Username</span><input id="loginUser" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+                    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
+                </div>
+                <p id="loginError" class="form-error" role="alert"></p>
+                <div class="acts"><button type="button" class="btn quiet" data-action="close-modal">Cancel</button><button class="btn dark" type="submit">Log in</button></div>
+            </form>`);
+        setTimeout(() => { const el = $('#loginUser'); if (el) el.focus(); }, 30);
+    }
+
+    function accountDialog() {
+        if (!S.me) { loginDialog(); return; }
+        openModal(`
+            <form class="modal" data-form="password">
+                <h3>${esc(S.me.name)}</h3>
+                <p>Signed in as <b>${esc(S.me.username)}</b> (${S.me.role === 'ADMIN' ? 'admin' : 'coach'}). Everything you change is logged under your name.</p>
+                <div class="stack">
+                    <label class="field"><span>Current password</span><input type="password" name="current" autocomplete="current-password" required></label>
+                    <label class="field"><span>New password</span><input type="password" name="next" minlength="8" autocomplete="new-password" required><small>At least 8 characters.</small></label>
+                    <label class="field"><span>New password again</span><input type="password" name="again" minlength="8" autocomplete="new-password" required></label>
+                </div>
+                <div class="acts">
+                    <button type="button" class="btn danger" data-action="logout" style="margin-right:auto">Log out</button>
+                    <button type="button" class="btn quiet" data-action="close-modal">Close</button>
+                    <button class="btn dark" type="submit">Change password</button>
+                </div>
+            </form>`);
+    }
+
+    async function logout() {
+        await api('POST', '/api/auth/logout').catch(() => null);
+        S.me = null;
+        S.staff = null;
+        S.activity = null;
+        closeModal();
+        closeDrawer();
+        if (S.view === 'staff') location.hash = '#/day';
+        render();
+        toast('Logged out. You are in the User view.');
+    }
+
+    function makePassword() {
+        const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const rnd = new Uint32Array(12);
+        window.crypto.getRandomValues(rnd);
+        return Array.from(rnd, (n) => chars[n % chars.length]).join('');
+    }
+
+    // ------------------------------------------------------------ Staff page
+    async function loadStaff() {
+        const list = await attempt(() => api('GET', '/api/staff'));
+        if (list) { S.staff = list; if (S.view === 'staff') renderView(); }
+    }
+    async function loadActivity() {
+        const q = S.activityFor === 'all' ? '' : `?staffId=${encodeURIComponent(S.activityFor)}`;
+        const list = await attempt(() => api('GET', `/api/activity${q}`));
+        if (list) { S.activity = list; if (S.view === 'staff') renderView(); }
+    }
+    // Keep the Staff page fresh while it is open.
+    setInterval(() => {
+        if (S.view === 'staff' && isAdminAccount() && !isTyping(document.activeElement) && $('#drawer').hidden) { loadStaff(); loadActivity(); }
+    }, 20000);
+
+    function fmtWhen(s) {
+        if (!s) return 'Never';
+        const d = toDate(s);
+        return `${fmtRel(d)}, ${fmtTime(d)}`;
+    }
+
+    function viewStaff() {
+        if (!isAdminAccount()) return '<div class="empty"><div><strong>Admins only.</strong>Log in with an admin account to manage staff.</div></div>';
+        const staff = S.staff;
+        const act = S.activity;
+        const who = S.activityFor === 'all' ? null : byId(staff || [], S.activityFor);
+        const accounts = staff === null ? '<p class="muted">Loading accounts…</p>' : `
+            <div class="table-wrap"><table class="grid staff-table">
+                <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th class="num">Actions</th><th></th></tr></thead>
+                <tbody>${staff.map((a) => `
+                    <tr class="${a.active ? '' : 'off'}">
+                        <td><b>${esc(a.name)}</b>${S.me.id === a.id ? ' <span class="muted">(you)</span>' : ''}</td>
+                        <td>${esc(a.username)}</td>
+                        <td><span class="tag ${a.role === 'ADMIN' ? 'live' : ''}">${a.role === 'ADMIN' ? 'Admin' : 'Coach'}</span></td>
+                        <td>${a.active ? 'Active' : '<span class="bad-text">Turned off</span>'}</td>
+                        <td>${esc(fmtWhen(a.lastLoginAt))}</td>
+                        <td class="num">${a.actions}</td>
+                        <td class="row-acts">
+                            <button class="btn sm ${S.activityFor === String(a.id) ? 'dark' : ''}" data-action="staff-filter" data-v="${a.id}">Activity</button>
+                            <button class="btn sm quiet" data-action="edit-staff" data-id="${a.id}">Edit</button>
+                            <button class="btn sm quiet" data-action="reset-staff" data-id="${a.id}">Reset password</button>
+                        </td>
+                    </tr>`).join('')}</tbody>
+            </table></div>`;
+        const feed = act === null ? '<p class="muted">Loading activity…</p>' : act.length ? `
+            <ul class="list activity">${act.map((e) => `
+                <li>
+                    <div class="time">${esc(fmtTime(e.createdAt))}<small>${esc(fmtRel(toDate(e.createdAt)))}</small></div>
+                    <div class="what"><b>${esc(e.staffName || 'Unknown')}</b> ${esc(e.action)}</div>
+                    <div class="acts">${e.matchId && byId(S.matches, e.matchId) ? `<button class="btn sm quiet" data-action="goto" data-id="${e.matchId}">Open match</button>` : ''}</div>
+                </li>`).join('')}</ul>`
+            : `<div class="empty"><div><strong>Nothing yet.</strong>${who ? `${esc(who.name)} hasn't done anything yet.` : 'Actions show up here as soon as someone logs in and makes a change.'}</div></div>`;
+        return `
+            <div class="head">
+                <div><h1>Staff</h1><p>Coach and admin logins, and a log of everything each person has done.</p></div>
+                <div class="head-actions">
+                    <button class="btn" data-action="refresh-staff">Refresh</button>
+                    <button class="btn dark" data-action="new-staff">Add coach</button>
+                </div>
+            </div>
+            ${accounts}
+            <div class="sub-row">
+                <h2 class="sub">Activity: ${who ? esc(who.name) : 'everyone'}</h2>
+                ${who ? '<button class="btn sm quiet" data-action="staff-filter" data-v="all">Show everyone</button>' : ''}
+            </div>
+            ${feed}`;
+    }
+
+    function staffForm(a) {
+        if (!isAdminAccount()) return;
+        const editing = !!a;
+        const fields = `
+            <label class="field"><span>Name</span><input type="text" name="name" value="${esc(a ? a.name : '')}" placeholder="Coach Rivera" required><small>Shown in the activity log and on match timelines.</small></label>
+            ${editing ? `<div class="field"><span>Username</span><div><b>${esc(a.username)}</b></div></div>` : `
+            <label class="field"><span>Username</span><input type="text" name="username" placeholder="c.rivera" autocapitalize="none" autocomplete="off" spellcheck="false" required><small>3 to 30 characters: letters, numbers, dot, dash or underscore.</small></label>
+            <div class="field"><span>Password</span>
+                <div class="inline"><input id="newStaffPassword" type="text" name="password" value="${makePassword()}" autocomplete="off" required><button type="button" class="btn" data-action="gen-password" data-for="newStaffPassword">New</button></div>
+                <small>Give this to them. They can change it after they log in.</small>
+            </div>`}
+            <label class="field"><span>Role</span>
+                <select name="role">
+                    <option value="COACH" ${!a || a.role === 'COACH' ? 'selected' : ''}>Coach: every tool except Staff</option>
+                    <option value="ADMIN" ${a && a.role === 'ADMIN' ? 'selected' : ''}>Admin: every tool, including Staff</option>
+                </select>
+            </label>
+            ${editing ? `<label class="check"><input type="checkbox" name="active" ${a.active ? 'checked' : ''}> Account is on. Turn it off to block logins and keep the history.</label>` : ''}`;
+        openDrawer(editing ? `Edit ${a.name}` : 'Add coach', fields, {
+            submit: editing ? 'Save changes' : 'Create account',
+            onSubmit: async (fd) => {
+                const body = editing
+                    ? { name: fd.get('name'), role: fd.get('role'), active: fd.get('active') === 'on' }
+                    : { name: fd.get('name'), username: String(fd.get('username') || '').trim().toLowerCase(), password: fd.get('password'), role: fd.get('role') };
+                const saved = await attempt(() => (editing ? api('PUT', `/api/staff/${a.id}`, body) : api('POST', '/api/staff', body)));
+                if (!saved) return false;
+                toast(editing ? 'Account saved.' : `Account created. Username ${saved.username}, password ${body.password}`);
+                loadStaff();
+                loadActivity();
+                return true;
+            },
+        });
+    }
+
+    function resetPasswordDialog(a) {
+        if (!a) return;
+        openModal(`
+            <form class="modal" data-form="reset-password" data-id="${a.id}">
+                <h3>Reset password for ${esc(a.name)}</h3>
+                <p>Their old password stops working straight away. Give them the new one.</p>
+                <div class="field"><span>New password</span>
+                    <div class="inline"><input id="resetPw" type="text" name="password" value="${makePassword()}" minlength="8" autocomplete="off" required><button type="button" class="btn" data-action="gen-password" data-for="resetPw">New</button></div>
+                </div>
+                <div class="acts"><button type="button" class="btn quiet" data-action="close-modal">Cancel</button><button class="btn dark" type="submit">Reset password</button></div>
+            </form>`);
+    }
+
     // ----------------------------------------------------------- dialogs
     function openModal(html) {
         const m = $('#modal');
@@ -1010,10 +1192,10 @@
             <div class="modal wide">
                 <h3>Keyboard shortcuts</h3>
                 <dl class="keys">
-                    <dt><kbd>1</kbd> to <kbd>5</kbd></dt><dd>Switch page</dd>
+                    <dt><kbd>1</kbd> to <kbd>5</kbd></dt><dd>Switch page (<kbd>6</kbd> is Staff, for admins)</dd>
                     <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Day line: previous / next day (with no match open)</dd>
                     <dt><kbd>T</kbd></dt><dd>Day line: back to today</dd>
-                    <dt><kbd>N</kbd></dt><dd>New match (Admin)</dd>
+                    <dt><kbd>N</kbd></dt><dd>New match (when logged in)</dd>
                     <dt><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd></dt><dd>Home +1 / +2 / +3</dd>
                     <dt><kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd></dt><dd>Away +1 / +2 / +3</dd>
                     <dt><kbd>A</kbd> / <kbd>L</kbd></dt><dd>Take a point from home / away</dd>
@@ -1053,6 +1235,8 @@
             return false;
         }
         Object.assign(S, { sports: data.sports, teams: data.teams, matches: data.matches, events: data.events, records: data.records, divisions: data.divisions });
+        const who = await api('GET', '/api/auth/me').catch(() => null);
+        S.me = who && who.signedIn ? who.me : null;
         await loadPicks();
         if (!S.standings.sportId && S.sports[0]) S.standings.sportId = S.sports[0].id;
         return true;
@@ -1107,20 +1291,24 @@
     function route() {
         const v = (location.hash.replace(/^#\/?/, '') || 'day').split('?')[0];
         S.view = VIEWS.includes(v) ? v : 'day';
+        if (S.view === 'staff' && !isAdminAccount()) { S.view = 'day'; history.replaceState(null, '', '#/day'); }
         if (S.view === 'standings') { S.standings.rows = null; loadStandings(); }
+        if (S.view === 'staff') { loadStaff(); loadActivity(); }
         render();
         window.scrollTo(0, 0);
     }
 
     // ------------------------------------------------------ click handling
     const actions = {
-        'role': (el) => {
-            S.role = el.dataset.v === 'USER' ? 'USER' : 'ADMIN';
-            try { localStorage.setItem('mesac-view', S.role); } catch (_) { /* storage off */ }
-            if (!isAdmin()) { closeDrawer(); closeModal(); }
-            render();
-            toast(isAdmin() ? 'Admin view: every tool is on.' : 'User view: see everything, change nothing. Pick who will win on upcoming matches.');
-        },
+        'login': () => loginDialog(),
+        'account': () => accountDialog(),
+        'logout': () => logout(),
+        'gen-password': (el) => { const input = document.getElementById(el.dataset.for); if (input) { input.value = makePassword(); input.select(); } },
+        'staff-filter': (el) => { S.activityFor = el.dataset.v; S.activity = null; renderView(); loadActivity(); },
+        'new-staff': () => staffForm(),
+        'edit-staff': (el) => staffForm(byId(S.staff || [], el.dataset.id)),
+        'reset-staff': (el) => resetPasswordDialog(byId(S.staff || [], el.dataset.id)),
+        'refresh-staff': () => { loadStaff(); loadActivity(); },
         'pick': (el) => pick(Number(el.dataset.id), el.dataset.side),
         'day': (el) => {
             const n = Number(el.dataset.v);
@@ -1139,11 +1327,11 @@
         'undo': (el) => doUndo(Number(el.dataset.id)),
         'start': (el) => matchAction(Number(el.dataset.id), 'start', undefined, (m) => `${vs(m)} is live.`),
         'finish': (el) => finishMatch(Number(el.dataset.id)),
-        'reopen': (el) => { if (requireAdmin()) matchAction(Number(el.dataset.id), 'reopen', undefined, 'Match reopened. It no longer counts in the standings.'); },
+        'reopen': (el) => { if (requireStaff()) matchAction(Number(el.dataset.id), 'reopen', undefined, 'Match reopened. It no longer counts in the standings.'); },
         'period': (el) => matchAction(Number(el.dataset.id), 'period', { direction: Number(el.dataset.dir) }),
         'set-score': (el) => setScoreDialog(Number(el.dataset.id)),
         'reset-poll': async (el) => {
-            if (!requireAdmin()) return;
+            if (!requireStaff()) return;
             const ok = await confirmBox({ title: 'Clear all fan picks?', body: 'Every Viper Token pick for this match will be removed.', ok: 'Clear picks', danger: true });
             if (!ok) return;
             const poll = await attempt(() => api('DELETE', `/api/matches/${el.dataset.id}/poll`), 'Fan picks cleared.');
@@ -1152,7 +1340,7 @@
         'new-match': () => matchForm(),
         'edit-match': (el) => matchForm(byId(S.matches, el.dataset.id)),
         'delete-match': async (el) => {
-            if (!requireAdmin()) return;
+            if (!requireStaff()) return;
             const m = byId(S.matches, el.dataset.id);
             if (!m) return;
             const ok = await confirmBox({ title: `Delete ${m.code}?`, body: `${vs(m)} and its timeline will be removed. This can't be undone.`, ok: 'Delete match', danger: true });
@@ -1219,6 +1407,26 @@
         } else if (kind === 'set-score') {
             const m = await matchAction(Number(form.dataset.id), 'set-score', { home: Number(fd.get('home')), away: Number(fd.get('away')) }, (x) => `Score set to ${x.homeScore}–${x.awayScore}.`);
             if (m) closeModal();
+        } else if (kind === 'login') {
+            const btn = $('button[type=submit]', form);
+            const err = $('#loginError');
+            btn.disabled = true;
+            const me = await api('POST', '/api/auth/login', { username: String(fd.get('username') || '').trim(), password: fd.get('password') })
+                .catch((x) => { if (err) err.textContent = x.message; return null; });
+            btn.disabled = false;
+            if (me) {
+                S.me = me;
+                closeModal();
+                render();
+                toast(`Signed in as ${me.name}. Every tool is on${me.role === 'ADMIN' ? ', and Staff is in the menu' : ''}.`);
+            }
+        } else if (kind === 'password') {
+            if (fd.get('next') !== fd.get('again')) { toast('The two new passwords don\'t match.', { error: true }); return; }
+            const ok = await attempt(async () => { await api('POST', '/api/auth/password', { current: fd.get('current'), next: fd.get('next') }); return true; }, 'Password changed.');
+            if (ok) closeModal();
+        } else if (kind === 'reset-password') {
+            const ok = await attempt(async () => { await api('POST', `/api/staff/${form.dataset.id}/password`, { password: fd.get('password') }); return true; }, 'Password reset. Give the new password to them.');
+            if (ok) { closeModal(); loadStaff(); loadActivity(); }
         } else if (kind === 'note') {
             const message = String(fd.get('message') || '').trim();
             if (!message || S.sel == null) return;
@@ -1252,7 +1460,7 @@
         if (modalOpen || drawerOpen || isTyping(document.activeElement) || e.ctrlKey || e.metaKey || e.altKey) return;
         const k = e.key.toLowerCase();
 
-        if (S.view === 'day' && S.sel != null && isAdmin()) {
+        if (S.view === 'day' && S.sel != null && canEdit()) {
             const m = byId(S.matches, S.sel);
             if (m && m.status === 'LIVE') {
                 const incs = increments(m.sport);
@@ -1272,10 +1480,11 @@
             if (e.key === 'ArrowRight') { S.day = addDays(S.day, 1); render(); return; }
             if (k === 't') { S.day = startOfDay(new Date()); render(); return; }
         }
-        if (k === 'n' && isAdmin()) { e.preventDefault(); matchForm(); return; }
+        if (k === 'n' && canEdit()) { e.preventDefault(); matchForm(); return; }
         if (k === '?') { shortcutsDialog(); return; }
         const n = Number(k);
-        if (n >= 1 && n <= VIEWS.length) location.hash = `#/${VIEWS[n - 1]}`;
+        const max = isAdminAccount() ? VIEWS.length : VIEWS.length - 1;
+        if (n >= 1 && n <= max) location.hash = `#/${VIEWS[n - 1]}`;
     });
 
     // ------------------------------------------------------------- start

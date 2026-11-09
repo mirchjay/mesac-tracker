@@ -2,6 +2,7 @@ package com.mesac;
 
 import com.mesac.model.*;
 import com.mesac.repository.*;
+import com.mesac.service.AuthService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,21 +27,28 @@ public class DataInitializer implements CommandLineRunner {
     private final MatchEventRepository events;
     private final PollVoteRepository votes;
     private final ConferenceRecordRepository records;
+    private final AuthService auth;
 
     public DataInitializer(SportRepository sports, TeamRepository teams, MatchRepository matches,
                            MatchEventRepository events, PollVoteRepository votes,
-                           ConferenceRecordRepository records) {
+                           ConferenceRecordRepository records, AuthService auth) {
         this.sports = sports;
         this.teams = teams;
         this.matches = matches;
         this.events = events;
         this.votes = votes;
         this.records = records;
+        this.auth = auth;
     }
 
     @Override
     @Transactional
     public void run(String... args) {
+        // First admin account, so someone can log in. Change this password after your first login!
+        if (auth.createFirstAdmin("Tournament Admin", "admin", "mesac-admin-2026")) {
+            System.out.println(">>> First admin login: username admin, password mesac-admin-2026 (change it after you sign in)");
+        }
+
         if (sports.count() > 0) return;
 
         // ---- Sports: name, icon, colour, score buttons, period name, periods, draws allowed
