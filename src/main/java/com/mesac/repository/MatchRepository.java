@@ -21,4 +21,6 @@ public interface MatchRepository extends JpaRepository<Match, Long> {
     boolean existsBySportId(Long sportId);
 
     boolean existsByHomeTeamIdOrAwayTeamId(Long homeTeamId, Long awayTeamId);
+
+    List<Match> findByHomeTeamIdOrAwayTeamId(Long homeTeamId, Long awayTeamId);
 }

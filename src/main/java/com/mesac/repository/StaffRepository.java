@@ -16,4 +16,6 @@ public interface StaffRepository extends JpaRepository<Staff, Long> {
     List<Staff> findAllByOrderByRoleAscNameAsc();
 
     long countByRoleAndActiveTrue(StaffRole role);
+
+    List<Staff> findByTeamId(Long teamId);
 }

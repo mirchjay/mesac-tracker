@@ -485,3 +485,21 @@ table.grid.compact th, table.grid.compact td { padding: 10px 8px; }
 .tag { white-space: nowrap; }
 .pred-list li { grid-template-columns: minmax(150px, 1fr) minmax(0, 2fr) 180px auto; }
 @media (max-width: 520px) { .hb-l small { display: none; } }
+
+/* ---------------------------------------------------------- logos */
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.brand-logo { height: 36px; width: auto; display: block; }
+.logo { --s: 20px; width: var(--s); height: var(--s); flex: none; display: inline-grid; place-items: center; vertical-align: middle; }
+.logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.logo.nologo::before { content: ""; width: 60%; height: 60%; border-radius: 2px; background: var(--c); }
+.blk .marks { display: inline-flex; gap: 3px; }
+.blk.live .logo, .blk.sel .logo { background: #FFFFFF; border-radius: 4px; padding: 1px; box-sizing: border-box; }
+.side .who { gap: 10px; }
+.team .code { gap: 10px; }
+.pickbtn { gap: 10px; }
+.logo-input { align-items: center; }
+.logo-input #logoPreview:empty { display: none; }
+.pickbtn[aria-pressed="true"] .logo, .chip.on .logo { background: #FFFFFF; border-radius: 4px; padding: 1px; box-sizing: border-box; }
+.brand-logo { max-width: 160px; object-fit: contain; }
+table.grid td { vertical-align: middle; }
+table.grid td > span[style*="inline-flex"] { vertical-align: middle; }

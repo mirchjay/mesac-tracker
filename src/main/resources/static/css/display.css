@@ -771,3 +771,11 @@ tr.leader .rank { color: var(--amber); }
     .ribbon-track { overflow-x: auto; }
     .ribbon-run { animation: none; }
 }
+
+/* School logos on the big screen: white tiles so any logo reads on the dark background */
+.dlogo { --s: 32px; width: var(--s); height: var(--s); flex: none; display: inline-grid; place-items: center; background: #FFFFFF; border-radius: 8px; padding: 3px; box-sizing: border-box; vertical-align: middle; }
+.dlogo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.dlogo.nologo { background: var(--team); }
+.board-row .team-code { display: flex; align-items: center; gap: 12px; }
+.fixture .vs { display: flex; align-items: center; gap: 8px; }
+.brand-logo { height: 1.1em; width: auto; vertical-align: -0.15em; margin-right: 12px; }

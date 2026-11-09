@@ -67,6 +67,7 @@ public class CatalogService {
         team.setShortName(code);
         team.setCity(trimToNull(req.city()));
         team.setColor(color(req.color(), "#5B8DEF"));
+        team.setLogoUrl(logo(req.logoUrl()));
         boolean isNew = team.getId() == null;
         teams.save(team);
         activity.record((isNew ? "Added team " : "Edited team ") + team.getShortName() + " (" + team.getName() + ")");
@@ -178,6 +179,17 @@ public class CatalogService {
 
     private static String trimToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /** Blank means no logo. Otherwise a site path (/img/...) or an http(s) link. */
+    private static String logo(String value) {
+        String v = trimToNull(value);
+        if (v == null) return null;
+        if (v.length() > 500) throw ApiException.badRequest("Logo link is too long.");
+        if (!(v.startsWith("/") || v.startsWith("https://") || v.startsWith("http://"))) {
+            throw ApiException.badRequest("Logo must be a link starting with https:// or a path like /img/logos/acs.png.");
+        }
+        return v;
     }
 
     private static String color(String value, String fallback) {

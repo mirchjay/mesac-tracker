@@ -11,6 +11,8 @@
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const toDate = (s) => (s ? new Date(s) : null);
     const fmtTime = (s) => (s ? toDate(s).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
+    /** School logo in a white tile (dark screen); colour square if there's no logo or it fails to load. */
+    const logo = (t, size) => `<span class="dlogo ${t.logoUrl ? '' : 'nologo'}" style="--s:${size}px;--team:${esc(t.color)}" aria-hidden="true">${t.logoUrl ? `<img src="${esc(t.logoUrl)}" alt="" onerror="this.parentNode.classList.add('nologo');this.remove()">` : ''}</span>`;
     const bySchedule = (a, b) => (toDate(a.scheduledAt) || 0) - (toDate(b.scheduledAt) || 0);
 
     function period(m) {
@@ -26,7 +28,7 @@
             return `
                 <div class="board-row ${mine < theirs ? 'trailing' : ''}" style="--team:${esc(t.color)}">
                     <span class="jersey"></span>
-                    <div class="team-code">${esc(t.shortName)}<span class="team-name">${esc(t.name)}</span></div>
+                    <div class="team-code">${logo(t, 44)}<span>${esc(t.shortName)}<span class="team-name">${esc(t.name)}</span></span></div>
                     <div class="led ${flashing.has(`${m.id}-${side}`) ? 'flash' : ''}">${mine}</div><div></div>
                 </div>`;
         };
@@ -63,9 +65,9 @@
                     <div class="when">${esc(fmtTime(m.scheduledAt))}</div>
                     <div class="ico">${esc(m.sport.icon)}</div>
                     <div class="who"><div class="vs">
-                        <span class="chip-dot" style="--team:${esc(m.homeTeam.color)}"></span>${esc(m.homeTeam.shortName)}
+                        ${logo(m.homeTeam, 26)}${esc(m.homeTeam.shortName)}
                         <span style="color:var(--mist);font-weight:400">vs</span>
-                        <span class="chip-dot" style="--team:${esc(m.awayTeam.color)}"></span>${esc(m.awayTeam.shortName)}
+                        ${logo(m.awayTeam, 26)}${esc(m.awayTeam.shortName)}
                     </div><div class="meta">${esc(m.sport.name)}, ${esc(m.divisionLabel)}${m.venue ? `, ${esc(m.venue)}` : ''}</div></div>
                     <div></div>
                 </li>`).join('')}</ul>` : '';

@@ -27,7 +27,7 @@ public final class Requests {
 
     public record VoteRequest(Side side, Integer tokens, String voter) {}
 
-    public record TeamRequest(String name, String shortName, String city, String color) {}
+    public record TeamRequest(String name, String shortName, String city, String color, String logoUrl) {}
 
     public record SportRequest(String name, String icon, String color, String scoreIncrements,
                                String periodName, Integer periodCount, Boolean allowsDraw, Integer matchMinutes) {}

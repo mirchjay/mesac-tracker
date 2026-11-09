@@ -29,6 +29,8 @@ public class DataInitializer implements CommandLineRunner {
     private final ConferenceRecordRepository records;
     private final AuthService auth;
     private final PlayerRepository players;
+    private final MatchReportRepository reports;
+    private final StaffRepository staff;
 
     /** Set mesac.demo-data=false in application.properties before the real tournament. */
     @Value("${mesac.demo-data:true}")
@@ -36,8 +38,11 @@ public class DataInitializer implements CommandLineRunner {
 
     public DataInitializer(SportRepository sports, TeamRepository teams, MatchRepository matches,
                            MatchEventRepository events, PollVoteRepository votes,
-                           ConferenceRecordRepository records, AuthService auth, PlayerRepository players) {
+                           ConferenceRecordRepository records, AuthService auth, PlayerRepository players,
+                           MatchReportRepository reports, StaffRepository staff) {
         this.players = players;
+        this.reports = reports;
+        this.staff = staff;
         this.sports = sports;
         this.teams = teams;
         this.matches = matches;
@@ -56,6 +61,7 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         if (sports.count() == 0) loadSampleData();
+        syncMemberSchools();
         if (demoData) {
             seedRosters();
             seedDemoPicks();
@@ -74,7 +80,7 @@ public class DataInitializer implements CommandLineRunner {
         Team asd = teams.save(new Team("American School of Dubai", "ASD", "Dubai", "#C8102E"));
         Team daa = teams.save(new Team("Dubai American Academy", "DAA", "Dubai", "#1F5FBF"));
         Team acs = teams.save(new Team("American Community School", "ACS", "Abu Dhabi", "#6C3FC5"));
-        Team taism = teams.save(new Team("The American International School Muscat", "TAISM", "Muscat", "#0F8A6B"));
+        Team doha = teams.save(new Team("American School of Doha", "DOHA", "Doha", "#0F8A6B"));
         Team aes = teams.save(new Team("American Embassy School", "AES", "New Delhi", "#E07A12"));
         Team aba = teams.save(new Team("ABA Oman International School", "ABA", "Muscat", "#0E7FA8"));
 
@@ -85,21 +91,21 @@ public class DataInitializer implements CommandLineRunner {
 
         // ---- Finished matches (these build the standings)
         done(basketball, Division.VARSITY_BOYS, asd, daa, 58, 52, "Main Gym", yesterday.atTime(9, 0));
-        done(basketball, Division.VARSITY_BOYS, acs, taism, 61, 55, "Aux Gym", yesterday.atTime(10, 30));
+        done(basketball, Division.VARSITY_BOYS, acs, doha, 61, 55, "Aux Gym", yesterday.atTime(10, 30));
         done(basketball, Division.VARSITY_BOYS, aes, aba, 47, 50, "Main Gym", yesterday.atTime(12, 0));
         done(basketball, Division.VARSITY_BOYS, asd, acs, 49, 54, "Main Gym", yesterday.atTime(15, 0));
-        done(basketball, Division.VARSITY_BOYS, daa, taism, 63, 60, "Aux Gym", yesterday.atTime(16, 30));
+        done(basketball, Division.VARSITY_BOYS, daa, doha, 63, 60, "Aux Gym", yesterday.atTime(16, 30));
         done(basketball, Division.VARSITY_BOYS, aba, asd, 44, 52, "Main Gym", today.atTime(8, 0));
 
         done(soccer, Division.VARSITY_GIRLS, acs, asd, 2, 1, "Field A", yesterday.atTime(9, 0));
-        done(soccer, Division.VARSITY_GIRLS, taism, aes, 0, 0, "Field B", yesterday.atTime(9, 0));
+        done(soccer, Division.VARSITY_GIRLS, doha, aes, 0, 0, "Field B", yesterday.atTime(9, 0));
         done(soccer, Division.VARSITY_GIRLS, daa, aba, 3, 2, "Field A", yesterday.atTime(14, 0));
-        done(soccer, Division.VARSITY_GIRLS, asd, taism, 1, 1, "Field B", yesterday.atTime(14, 0));
+        done(soccer, Division.VARSITY_GIRLS, asd, doha, 1, 1, "Field B", yesterday.atTime(14, 0));
         done(soccer, Division.VARSITY_GIRLS, acs, daa, 1, 0, "Field A", today.atTime(8, 30));
 
         done(volleyball, Division.JV_GIRLS, acs, daa, 25, 21, "Aux Gym", yesterday.atTime(11, 0));
         done(volleyball, Division.JV_GIRLS, asd, aes, 25, 18, "Aux Gym", yesterday.atTime(13, 0));
-        done(volleyball, Division.JV_GIRLS, taism, aba, 23, 25, "Aux Gym", yesterday.atTime(17, 0));
+        done(volleyball, Division.JV_GIRLS, doha, aba, 23, 25, "Aux Gym", yesterday.atTime(17, 0));
 
         // ---- Live right now, with a short scoring trail each
         Match liveBball = live(basketball, Division.VARSITY_BOYS, acs, aba, 41, 38, 3, "Main Gym", now.minusMinutes(38));
@@ -110,28 +116,88 @@ public class DataInitializer implements CommandLineRunner {
         trail(liveSoccer, new Side[]{Side.HOME}, new int[]{1});
         fans(liveSoccer, 11, 6);
 
-        Match liveVolley = live(volleyball, Division.JV_GIRLS, taism, asd, 18, 22, 2, "Aux Gym", now.minusMinutes(24));
+        Match liveVolley = live(volleyball, Division.JV_GIRLS, doha, asd, 18, 22, 2, "Aux Gym", now.minusMinutes(24));
         trail(liveVolley, new Side[]{Side.AWAY, Side.HOME, Side.AWAY, Side.AWAY}, new int[]{1, 1, 1, 1});
         fans(liveVolley, 5, 12);
 
         // ---- Coming up
         upcoming(basketball, Division.VARSITY_GIRLS, daa, asd, "Aux Gym", roundUp(now.plusMinutes(40)));
-        upcoming(soccer, Division.VARSITY_BOYS, taism, acs, "Field B", roundUp(now.plusMinutes(70)));
+        upcoming(soccer, Division.VARSITY_BOYS, doha, acs, "Field B", roundUp(now.plusMinutes(70)));
         upcoming(handball, Division.JV_BOYS, aba, aes, "Main Gym", roundUp(now.plusMinutes(100)));
         upcoming(volleyball, Division.VARSITY_GIRLS, acs, aes, "Aux Gym", roundUp(now.plusMinutes(150)));
-        upcoming(basketball, Division.VARSITY_BOYS, taism, aba, "Main Gym", tomorrow.atTime(9, 0));
+        upcoming(basketball, Division.VARSITY_BOYS, doha, aba, "Main Gym", tomorrow.atTime(9, 0));
         upcoming(basketball, Division.VARSITY_BOYS, daa, acs, "Main Gym", tomorrow.atTime(10, 30));
         upcoming(soccer, Division.VARSITY_GIRLS, aes, aba, "Field A", tomorrow.atTime(9, 30));
-        upcoming(handball, Division.JV_BOYS, asd, taism, "Aux Gym", tomorrow.atTime(13, 0));
+        upcoming(handball, Division.JV_BOYS, asd, doha, "Aux Gym", tomorrow.atTime(13, 0));
 
         // ---- Conference records (sample data - replace with real ones)
         records.save(new ConferenceRecord(basketball, Division.VARSITY_BOYS, "Most points in a single game", "Sam Smith", "DAA", "45 pts", 2023));
         records.save(new ConferenceRecord(basketball, null, "Highest team score", "ASD Varsity Boys", "ASD", "98 pts", 2022));
         records.save(new ConferenceRecord(soccer, Division.VARSITY_GIRLS, "Most goals in one tournament", "Leila Haddad", "ACS", "9 goals", 2025));
-        records.save(new ConferenceRecord(volleyball, Division.VARSITY_GIRLS, "Most aces in a match", "Priya Nair", "TAISM", "14 aces", 2024));
+        records.save(new ConferenceRecord(volleyball, Division.VARSITY_GIRLS, "Most aces in a match", "Priya Nair", "DOHA", "14 aces", 2024));
         records.save(new ConferenceRecord(soccer, Division.VARSITY_BOYS, "Fastest goal from kick-off", "Omar Khalil", "ABA", "11 seconds", 2021));
 
         System.out.println(">>> MESAC sample data loaded: " + matches.count() + " matches, " + teams.count() + " teams.");
+    }
+
+    // ------------------------------------------------------------------ member schools
+
+    /** The six MESAC member schools, as listed on mesacleague.com. Logos live in static/img/logos. */
+    private static final String[][] MEMBERS = {
+            // full name, code, city, colour, logo
+            {"ABA Oman International School", "ABA", "Muscat", "#0E7FA8", "/img/logos/aba.png"},
+            {"Dubai American Academy", "DAA", "Dubai", "#1F5FBF", "/img/logos/daa.png"},
+            {"American School of Dubai", "ASD", "Dubai", "#C8102E", "/img/logos/asd.png"},
+            {"American Community School", "ACS", "Abu Dhabi", "#6C3FC5", "/img/logos/acs.png"},
+            {"American Embassy School", "AES", "New Delhi", "#E07A12", "/img/logos/aes.png"},
+            {"American School of Doha", "DOHA", "Doha", "#0F8A6B", "/img/logos/doha.png"},
+    };
+
+    /** Schools that used to be in the sample data but aren't MESAC members. */
+    private static final String[] NOT_MEMBERS = {"TAISM"};
+
+    /**
+     * Brings the teams in line with the MESAC member list: adds missing member schools, sets their logos,
+     * and removes non-member schools with their matches. Runs once: only while no team has a logo yet,
+     * so teams you add or change later are left alone.
+     */
+    private void syncMemberSchools() {
+        List<Team> all = teams.findAll();
+        if (all.stream().anyMatch(t -> t.getLogoUrl() != null)) return;
+
+        for (String[] m : MEMBERS) {
+            Team team = all.stream()
+                    .filter(t -> t.getName().equalsIgnoreCase(m[0]) || t.getShortName().equalsIgnoreCase(m[1]))
+                    .findFirst().orElse(null);
+            if (team == null) {
+                team = new Team(m[0], m[1], m[2], m[3]);
+                System.out.println(">>> Added member school " + m[0] + " (" + m[1] + ")");
+            }
+            team.setLogoUrl(m[4]);
+            teams.save(team);
+        }
+
+        for (String code : NOT_MEMBERS) {
+            teams.findAll().stream().filter(t -> t.getShortName().equalsIgnoreCase(code)).findFirst().ifPresent(t -> {
+                List<Match> theirs = matches.findByHomeTeamIdOrAwayTeamId(t.getId(), t.getId());
+                for (Match match : theirs) {
+                    events.deleteByMatch_Id(match.getId());
+                    votes.deleteByMatch_Id(match.getId());
+                    reports.deleteByMatchId(match.getId());
+                    matches.delete(match);
+                }
+                players.deleteByTeamId(t.getId());
+                for (Staff s : staff.findByTeamId(t.getId())) {
+                    s.setTeamId(null);
+                    staff.save(s);
+                }
+                for (ConferenceRecord r : records.findAll()) {
+                    if (code.equalsIgnoreCase(r.getSchool())) records.delete(r);
+                }
+                teams.delete(t);
+                System.out.println(">>> Removed " + t.getName() + " (not a MESAC member) and its " + theirs.size() + " matches");
+            });
+        }
     }
 
     // ------------------------------------------------------------------ demo rosters and picks

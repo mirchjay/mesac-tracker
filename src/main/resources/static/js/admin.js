@@ -66,6 +66,14 @@
     const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const byId = (list, id) => list.find((x) => String(x.id) === String(id));
+
+    /** A school's logo at the given size. Falls back to its colour square if there's no logo or it can't load. */
+    function logo(team, size = 20) {
+        if (!team) return '';
+        const t = byId(S.teams, team.id) || team;
+        const img = t.logoUrl ? `<img src="${esc(t.logoUrl)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('nologo');this.remove()">` : '';
+        return `<span class="logo ${img ? '' : 'nologo'}" style="--s:${size}px;--c:${esc(t.color)}" aria-hidden="true">${img}</span>`;
+    }
     const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + 's')}`;
     const ICON = {
         prev: '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -381,7 +389,7 @@
     function block({ m, start, end, row }, pct) {
         const left = pct(start), width = Math.max(pct(end) - left, 3);
         const cls = m.status === 'LIVE' ? 'live' : m.status === 'DONE' ? 'done' : '';
-        const marks = `<span class="marks"><span class="sq" style="--c:${esc(m.homeTeam.color)}"></span><span class="sq" style="--c:${esc(m.awayTeam.color)}"></span></span>`;
+        const marks = `<span class="marks">${logo(m.homeTeam, 18)}${logo(m.awayTeam, 18)}</span>`;
         let bottom, label;
         if (m.status === 'UPCOMING') {
             bottom = `<span class="when">${esc(fmtTime(m.scheduledAt))}</span>${marks}`;
@@ -443,7 +451,7 @@
             const keys = s === 'HOME' ? ['Q', 'W', 'E'] : ['I', 'O', 'P'];
             return `
                 <div class="side ${s === 'AWAY' ? 'away' : ''} ${!upcoming && mine < theirs ? 'trail' : ''}">
-                    <div class="who"><span class="sq" style="--c:${esc(team.color)}"></span>${esc(team.shortName)} <small>${esc(team.name)}</small></div>
+                    <div class="who">${logo(team, 36)}${esc(team.shortName)} <small>${esc(team.name)}</small></div>
                     <div class="big ${S.flash.has(`${m.id}-${s}`) ? 'flash' : ''}" aria-live="polite" aria-label="${esc(team.shortName)} score">${mine}</div>
                     ${canEdit() ? `<div class="pad">
                         ${incs.map((n, i) => `<button data-action="score" data-id="${m.id}" data-side="${s}" data-delta="${n}" ${isLive ? '' : 'disabled'} aria-label="${esc(team.shortName)} plus ${n}">+${n}${keys[i] ? `<kbd>${keys[i]}</kbd>` : ''}</button>`).join('')}
@@ -533,7 +541,7 @@
         const total = p.homeVotes + p.awayVotes;
         const btn = (side) => {
             const t = side === 'HOME' ? m.homeTeam : m.awayTeam;
-            return `<button class="pickbtn" data-action="pick" data-id="${m.id}" data-side="${side}" aria-pressed="${p.mine === side}"><span class="sq" style="--c:${esc(t.color)}"></span>${esc(t.shortName)}</button>`;
+            return `<button class="pickbtn" data-action="pick" data-id="${m.id}" data-side="${side}" aria-pressed="${p.mine === side}">${logo(t, 24)}${esc(t.shortName)}</button>`;
         };
         let result = '<div class="split-note">Pick a team to see what everyone else thinks.</div>';
         if (p.mine) {
@@ -628,7 +636,7 @@
             <li>
                 <div class="time">${esc(fmtTime(matchStart(m)))}<small>${esc(m.code)}</small></div>
                 <button class="open" data-action="goto" data-id="${m.id}" aria-label="Open ${esc(vs(m))} on the Day line">
-                    <div class="vs"><span class="sq" style="--c:${esc(m.homeTeam.color)}"></span>${esc(m.homeTeam.shortName)} <span class="muted" style="font-weight:400">v</span> <span class="sq" style="--c:${esc(m.awayTeam.color)}"></span>${esc(m.awayTeam.shortName)} ${tag(m)}</div>
+                    <div class="vs">${logo(m.homeTeam)}${esc(m.homeTeam.shortName)} <span class="muted" style="font-weight:400">v</span> ${logo(m.awayTeam)}${esc(m.awayTeam.shortName)} ${tag(m)}</div>
                     <div class="meta">${esc(m.sport.name)}, ${esc(m.divisionLabel)}${m.venue ? `, ${esc(m.venue)}` : ''}${S.reports.get(m.id) && S.reports.get(m.id).mvpName ? `, <span class="mvp-inline">★ MVP ${esc(S.reports.get(m.id).mvpName)}</span>` : ''}</div>
                 </button>
                 <div class="res">${m.status === 'UPCOMING' ? '' : `${m.homeScore}–${m.awayScore}`}</div>
@@ -673,7 +681,7 @@
                 <tbody>${rows.map((r, i) => `
                     <tr>
                         <td class="rank">${i + 1}</td>
-                        <td><span style="display:inline-flex;align-items:center;gap:8px;font-weight:600"><span class="sq" style="--c:${esc(r.team.color)}"></span>${esc(r.team.shortName)}</span> <span class="muted">${esc(r.team.name)}</span></td>
+                        <td><span style="display:inline-flex;align-items:center;gap:8px;font-weight:600">${logo(r.team)}${esc(r.team.shortName)}</span> <span class="muted">${esc(r.team.name)}</span></td>
                         <td class="num">${r.played}</td><td class="num">${r.wins}</td>${draws ? `<td class="num">${r.draws}</td>` : ''}<td class="num">${r.losses}</td>
                         <td class="num">${r.pointsFor}</td><td class="num">${r.pointsAgainst}</td>
                         <td class="num">${r.difference > 0 ? '+' : ''}${r.difference}</td>
@@ -710,7 +718,7 @@
             return `
                 <div class="team">
                     <span class="wl" title="Wins and losses, all sports">${teamRecord(t.id)}</span>
-                    <span class="code"><span class="sq" style="--c:${esc(t.color)};width:14px;height:14px"></span>${esc(t.shortName)}</span>
+                    <span class="code">${logo(t, 40)}${esc(t.shortName)}</span>
                     <span class="nm">${esc(t.name)}</span>
                     <span class="ct">${esc(t.city || '')}</span>
                     <span class="team-acts">
@@ -818,7 +826,7 @@
         }
         const pastePlaceholder = '4 Omar Haddad\n7 Lena Nair, Guard\nSara Malik';
         $('#drawer').innerHTML = `
-            <header><h2><span class="sq" style="--c:${esc(team.color)};width:14px;height:14px"></span> ${esc(team.shortName)} roster</h2><button class="btn icon quiet" data-action="close-drawer" aria-label="Close">${ICON.close}</button></header>
+            <header><h2>${logo(team, 30)} ${esc(team.shortName)} roster</h2><button class="btn icon quiet" data-action="close-drawer" aria-label="Close">${ICON.close}</button></header>
             <div class="fields roster">
                 <div class="row2">
                     <label class="field"><span>Sport</span><select data-change="roster-sport">${S.sports.map((s) => `<option value="${s.id}" ${s.id === r.sportId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
@@ -926,7 +934,7 @@
         return `
             <div class="report">
                 <div class="report-head"><span class="pick-q" style="margin:0">Match report</span>${canEdit() ? `<span><button class="btn sm quiet" data-action="write-report" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-report" data-id="${m.id}">Delete</button></span>` : ''}</div>
-                ${r.mvpName ? `<div class="mvp"><span class="star" aria-hidden="true">★</span> MVP <b>${esc(r.mvpName)}</b>${mvpTeam ? ` <span class="sq" style="--c:${esc(mvpTeam.color)}"></span> ${esc(mvpTeam.shortName)}` : ''}</div>` : ''}
+                ${r.mvpName ? `<div class="mvp"><span class="star" aria-hidden="true">★</span> MVP <b>${esc(r.mvpName)}</b>${mvpTeam ? ` ${logo(mvpTeam)} ${esc(mvpTeam.shortName)}` : ''}</div>` : ''}
                 ${r.summary ? `<div class="recap">${esc(r.summary).split(/\n{2,}/).map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>` : ''}
                 <div class="by">${r.author ? `By ${esc(r.author)}, ` : ''}${esc(ago(r.updatedAt))}</div>
             </div>`;
@@ -968,7 +976,7 @@
     function mineChip() {
         const t = myTeam();
         if (!t) return '';
-        return `<button class="chip mine ${S.mineOnly ? 'on' : ''}" data-action="toggle-mine" aria-pressed="${S.mineOnly}"><span class="sq" style="--c:${esc(t.color)}"></span>My matches</button>`;
+        return `<button class="chip mine ${S.mineOnly ? 'on' : ''}" data-action="toggle-mine" aria-pressed="${S.mineOnly}">${logo(t)}My matches</button>`;
     }
 
     // ============================================================ top scorers
@@ -987,7 +995,7 @@
                     <tr>
                         <td class="rank">${i + 1}</td>
                         <td><b>${esc(r.name || 'Unknown')}</b>${r.number != null ? ` <span class="muted">#${r.number}</span>` : ''}</td>
-                        <td>${t ? `<span style="display:inline-flex;align-items:center;gap:8px"><span class="sq" style="--c:${esc(t.color)}"></span>${esc(t.shortName)}</span>` : ''}</td>
+                        <td>${t ? `<span style="display:inline-flex;align-items:center;gap:8px">${logo(t)}${esc(t.shortName)}</span>` : ''}</td>
                         <td class="num pts">${r.points}</td>
                         <td class="num">${r.scores}</td>
                         <td class="num">${r.matches}</td>
@@ -1175,7 +1183,7 @@
                 <h3>Most-backed schools</h3>
                 <p class="card-sub">Total picks for each school, across all its matches. The small number is the share of picks it got in its own matches.</p>
                 ${hbars(st.teams.map((t) => ({
-                    label: `<span class="sq" style="--c:${esc(t.team.color)}"></span><b>${esc(t.team.shortName)}</b>`,
+                    label: `${logo(t.team)}<b>${esc(t.team.shortName)}</b>`,
                     value: t.backed / maxBacked,
                     text: `${t.backed} <small>${pct(t.backed / Math.max(1, t.inMatches))}</small>`,
                     tip: `${t.team.name}: ${plural(t.backed, 'pick')} in ${plural(t.matches, 'match', 'matches')}, ${pct(t.backed / Math.max(1, t.inMatches))} of the picks in those matches`,
@@ -1211,7 +1219,7 @@
                 ${dailyChart(S.pred.daily)}
             </section>`;
 
-        const vsCell = (r) => `<span class="sq" style="--c:${esc(r.m.homeTeam.color)}"></span>${esc(r.m.homeTeam.shortName)} <span class="muted">v</span> <span class="sq" style="--c:${esc(r.m.awayTeam.color)}"></span>${esc(r.m.awayTeam.shortName)}`;
+        const vsCell = (r) => `${logo(r.m.homeTeam)}${esc(r.m.homeTeam.shortName)} <span class="muted">v</span> ${logo(r.m.awayTeam)}${esc(r.m.awayTeam.shortName)}`;
         const favName = (r) => (r.fav === 'HOME' ? r.m.homeTeam : r.m.awayTeam).shortName;
         const upsetsCard = `
             <section class="card wide">
@@ -1261,7 +1269,7 @@
                         if (r.m.status === 'LIVE') res = '<span class="tag live">Live</span>';
                         else if (r.winner === 'DRAW') res = `<span class="muted">Draw ${r.m.homeScore}–${r.m.awayScore}</span>`;
                         else if (r.winner) res = r.winner === r.mine ? `<span class="good-text">✓ Right</span> ${r.m.homeScore}–${r.m.awayScore}` : `<span class="bad-text">✗ Wrong</span> ${r.m.homeScore}–${r.m.awayScore}`;
-                        return `<tr><td><span class="vsc">${vsCell(r)}</span></td><td><span class="sq" style="--c:${esc(mineTeam.color)}"></span> <b>${esc(mineTeam.shortName)}</b></td><td>${pct(share)} agreed</td><td>${res}</td></tr>`;
+                        return `<tr><td><span class="vsc">${vsCell(r)}</span></td><td>${logo(mineTeam)} <b>${esc(mineTeam.shortName)}</b></td><td>${pct(share)} agreed</td><td>${res}</td></tr>`;
                     }).join('')}</tbody>
                 </table></div>
             </section>` : '';
@@ -1454,6 +1462,13 @@
                 <label class="field"><span>Short code</span><input type="text" name="shortName" value="${esc(t ? t.shortName : '')}" maxlength="6" placeholder="ACS" required style="text-transform:uppercase"><small>Up to 6 letters.</small></label>
                 <label class="field"><span>City</span><input type="text" name="city" value="${esc(t ? t.city || '' : '')}" placeholder="Abu Dhabi"></label>
             </div>
+            <label class="field"><span>Logo</span>
+                <div class="inline logo-input">
+                    <span id="logoPreview">${t ? logo(t, 40) : ''}</span>
+                    <input type="text" name="logoUrl" id="logoUrl" value="${esc(t ? t.logoUrl || '' : '')}" placeholder="/img/logos/acs.png or https://…" data-input="logo-url">
+                </div>
+                <small>Put the image in src/main/resources/static/img/logos and type its path, or paste a link to an image online. Leave empty to show the team colour.</small>
+            </label>
             <div class="field"><span>Team colour</span>
                 <div class="swatches">
                     <input type="color" name="color" id="teamColor" value="${esc(color)}" aria-label="Pick a colour">
@@ -1632,7 +1647,7 @@
                         <td><b>${esc(a.name)}</b>${S.me.id === a.id ? ' <span class="muted">(you)</span>' : ''}</td>
                         <td>${esc(a.username)}</td>
                         <td><span class="tag ${a.role === 'ADMIN' ? 'live' : ''}">${a.role === 'ADMIN' ? 'Admin' : 'Coach'}</span></td>
-                        <td>${a.teamId && byId(S.teams, a.teamId) ? `<span style="display:inline-flex;align-items:center;gap:6px"><span class="sq" style="--c:${esc(byId(S.teams, a.teamId).color)}"></span>${esc(byId(S.teams, a.teamId).shortName)}</span>` : '<span class="muted">–</span>'}</td>
+                        <td>${a.teamId && byId(S.teams, a.teamId) ? `<span style="display:inline-flex;align-items:center;gap:6px">${logo(byId(S.teams, a.teamId))}${esc(byId(S.teams, a.teamId).shortName)}</span>` : '<span class="muted">–</span>'}</td>
                         <td>${a.active ? 'Active' : '<span class="bad-text">Turned off</span>'}</td>
                         <td>${esc(fmtWhen(a.lastLoginAt))}</td>
                         <td class="num">${a.actions}</td>
@@ -2099,6 +2114,11 @@
 
     document.addEventListener('input', (e) => {
         if (e.target.dataset && e.target.dataset.input === 'search') { S.filters.q = e.target.value; renderView(); }
+        if (e.target.dataset && e.target.dataset.input === 'logo-url') {
+            const box = $('#logoPreview');
+            const url = e.target.value.trim();
+            if (box) box.innerHTML = url ? logo({ id: -1, color: ($('#teamColor') || {}).value || '#C8CDD5', logoUrl: url }, 40) : '';
+        }
         if (e.target.id === 'recapText') { const c = $('#recapCount'); if (c) c.textContent = e.target.value.length; }
     });
     document.addEventListener('change', (e) => {

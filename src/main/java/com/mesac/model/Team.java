@@ -24,6 +24,10 @@ public class Team {
     /** Jersey colour, e.g. "#C8102E". */
     private String color;
 
+    /** School logo: a path like /img/logos/acs.png or a full https:// link (optional). */
+    @Column(name = "logo_url", length = 500)
+    private String logoUrl;
+
     public Team() {}
 
     public Team(String name, String shortName, String city, String color) {
@@ -47,4 +51,7 @@ public class Team {
 
     public String getColor() { return color; }
     public void setColor(String color) { this.color = color; }
+
+    public String getLogoUrl() { return logoUrl; }
+    public void setLogoUrl(String logoUrl) { this.logoUrl = logoUrl; }
 }
