@@ -2,7 +2,9 @@ package com.mesac.service;
 
 import com.mesac.dto.Requests.MatchRequest;
 import com.mesac.dto.Views.MatchDetail;
+import com.mesac.dto.Views.DayCount;
 import com.mesac.dto.Views.PickView;
+import com.mesac.dto.Views.PredictionData;
 import com.mesac.dto.Views.PollSummary;
 import com.mesac.model.*;
 import com.mesac.repository.*;
@@ -11,11 +13,9 @@ import com.mesac.web.ApiException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /** All the rules for creating, scoring and finishing matches. */
 @Service
@@ -31,9 +31,12 @@ public class MatchService {
     private final TeamRepository teams;
     private final LiveHub live;
     private final ActivityService activity;
+    private final MatchReportRepository reports;
 
     public MatchService(MatchRepository matches, MatchEventRepository events, PollVoteRepository votes,
-                        SportRepository sports, TeamRepository teams, LiveHub live, ActivityService activity) {
+                        SportRepository sports, TeamRepository teams, LiveHub live, ActivityService activity,
+                        MatchReportRepository reports) {
+        this.reports = reports;
         this.matches = matches;
         this.events = events;
         this.votes = votes;
@@ -111,6 +114,7 @@ public class MatchService {
         activity.record("Deleted match, " + describe(match), match.getId());
         events.deleteByMatch_Id(id);
         votes.deleteByMatch_Id(id);
+        reports.deleteByMatchId(id);
         matches.delete(match);
         live.publish("match-deleted", Map.of("id", id));
     }
@@ -266,6 +270,22 @@ public class MatchService {
         return out;
     }
 
+    /** Everything the Predictions page needs: picks per match, picks per day, how many fans. */
+    @Transactional(readOnly = true)
+    public PredictionData predictions(String voter) {
+        Map<LocalDate, Integer> perDay = new TreeMap<>();
+        Set<String> fans = new HashSet<>();
+        int total = 0;
+        for (PollVote v : votes.findAll()) {
+            total++;
+            if (v.getVoter() != null) fans.add(v.getVoter());
+            if (v.getCreatedAt() != null) perDay.merge(v.getCreatedAt().toLocalDate(), 1, Integer::sum);
+        }
+        List<DayCount> daily = new ArrayList<>();
+        perDay.forEach((day, n) -> daily.add(new DayCount(day, n)));
+        return new PredictionData(picks(voter), daily, fans.size(), total);
+    }
+
     public PollSummary resetPoll(Long id) {
         activity.record("Cleared fan picks, " + describe(get(id)), id);
         votes.deleteByMatch_Id(id);
@@ -308,7 +328,7 @@ public class MatchService {
     }
 
     /** "M-012 ACS v ABA (Basketball, Varsity Boys)" for the activity log. */
-    private static String describe(Match m) {
+    public static String describe(Match m) {
         return m.getCode() + " " + m.getHomeTeam().getShortName() + " v " + m.getAwayTeam().getShortName()
                 + " (" + m.getSport().getName() + ", " + m.getDivisionLabel() + ")";
     }

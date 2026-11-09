@@ -15,12 +15,21 @@ public final class Views {
     public record Option(String value, String label) {}
 
     /** The signed-in account (null means User view). */
-    public record Me(Long id, String name, String username, String role) {}
+    public record Me(Long id, String name, String username, String role, Long teamId) {}
 
     /** An account on the Staff page, with how much they've done. */
     public record StaffView(Long id, String name, String username, String role, boolean active,
                             java.time.LocalDateTime createdAt, java.time.LocalDateTime lastLoginAt,
-                            long actions, java.time.LocalDateTime lastActionAt) {}
+                            long actions, java.time.LocalDateTime lastActionAt, Long teamId) {}
+
+    /** One line of the top scorers table. */
+    public record ScorerView(Long playerId, String name, Integer number, Long teamId, int points, int scores, int matches) {}
+
+    /** How many picks were made on one day. */
+    public record DayCount(java.time.LocalDate day, int picks) {}
+
+    /** Raw numbers for the Predictions page (the page works out the statistics). */
+    public record PredictionData(List<PickView> picks, List<DayCount> daily, int fans, int totalPicks) {}
 
     public record PollSummary(long homeTokens, long awayTokens, int homeVotes, int awayVotes) {}
 

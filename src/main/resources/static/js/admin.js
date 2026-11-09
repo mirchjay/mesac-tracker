@@ -28,17 +28,24 @@
         picks: new Map(),         // matchId -> { homeVotes, awayVotes, mine } (User view)
         dayFilters: { sport: 'all', division: 'all' },
         filters: { sport: 'all', status: 'all', division: 'all', q: '' },
-        standings: { sportId: null, division: 'VARSITY_BOYS', rows: null },
+        standings: { sportId: null, division: 'VARSITY_BOYS', rows: null, scorers: null },
+        players: [],              // every roster entry
+        reports: new Map(),       // matchId -> match report
+        tagFor: null,             // { matchId, eventId, side }: the "Who scored?" row
+        rosterOpen: null,         // { teamId, sportId, division } while the roster drawer is open
+        pred: null,               // raw numbers for the Predictions page
+        mineOnly: false,          // "My matches" filter
         flash: new Set(),
         drawerSubmit: null,
         connected: false,
         everConnected: false,
     };
 
-    const VIEWS = ['day', 'schedule', 'standings', 'teams', 'records', 'staff'];
+    const VIEWS = ['day', 'schedule', 'standings', 'teams', 'records', 'predictions', 'staff'];
     const SWATCHES = ['#C8102E', '#E07A12', '#F5C542', '#2FBF71', '#0F8A6B', '#0E7FA8', '#1F5FBF', '#6C3FC5', '#B5179E', '#5B6B7D'];
     const MIN = 60000, HOUR = 3600000;
 
+    try { S.mineOnly = localStorage.getItem('mesac-mine') === '1'; } catch (_) { /* storage off */ }
     const canEdit = () => !!S.me;                                   // coach or admin
     const isAdminAccount = () => !!S.me && S.me.role === 'ADMIN';   // can manage accounts
 
@@ -229,7 +236,7 @@
         const active = document.activeElement;
         const keep = active && view.contains(active) && active.id
             ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
-        view.innerHTML = ({ day: viewDay, schedule: viewSchedule, standings: viewStandings, teams: viewTeams, records: viewRecords, staff: viewStaff }[S.view] || viewDay)();
+        view.innerHTML = ({ day: viewDay, schedule: viewSchedule, standings: viewStandings, teams: viewTeams, records: viewRecords, predictions: viewPredictions, staff: viewStaff }[S.view] || viewDay)();
         if (keep) {
             const el = document.getElementById(keep.id);
             if (el) {
@@ -253,6 +260,7 @@
     function dayMatches() {
         const f = S.dayFilters;
         return S.matches.filter((m) => sameDay(matchStart(m), S.day)
+            && (!mineFilterOn() || isMine(m))
             && (f.sport === 'all' || String(m.sport.id) === f.sport)
             && (f.division === 'all' || m.division === f.division));
     }
@@ -286,6 +294,7 @@
                 </div>
             </div>
             <div class="filters">
+                ${mineChip()}
                 ${sportChips(f.sport, 'day-sport')}
                 <select id="dayDivision" aria-label="Division" data-change="day-division">
                     <option value="all">All divisions</option>
@@ -294,7 +303,7 @@
             </div>
             ${list.length ? timeline(list, isToday) : `
                 <div class="empty">
-                    <div><strong>No matches on this day${f.sport !== 'all' || f.division !== 'all' ? ' for these filters' : ''}.</strong>Use the arrows to check another day${canEdit() ? ', or add a match' : ''}.</div>
+                    <div><strong>No matches on this day${f.sport !== 'all' || f.division !== 'all' || mineFilterOn() ? ' for these filters' : ''}.</strong>Use the arrows to check another day${canEdit() ? ', or add a match' : ''}.</div>
                     ${canEdit() ? '<button class="btn" data-action="new-match">New match</button>' : ''}
                 </div>`}`;
     }
@@ -496,6 +505,8 @@
                 <div class="dock-body">
                     <div class="score">${side('HOME')}<div class="mid">${mid}</div>${side('AWAY')}</div>
                     <div class="log">
+                        ${scorerBlock(m)}
+                        ${reportBlock(m)}
                         ${!canEdit() && upcoming ? pickBlock(m) : ''}
                         ${canEdit() ? `<form class="note" data-form="note">
                             <input id="noteInput" type="text" name="message" maxlength="240" placeholder="Add a note, e.g. Timeout ACS" aria-label="Note">
@@ -551,7 +562,7 @@
         return `
             <li class="${ev.undone ? 'undone' : ''}">
                 <span class="sq" style="--c:${esc(ev.teamColor || 'var(--outline)')}"></span>
-                <div><div class="msg">${esc(ev.message)}</div>${ev.actor ? `<div class="who">by ${esc(ev.actor)}</div>` : ''}</div>
+                <div><div class="msg">${esc(ev.message)}${ev.playerName ? ` <span class="scorer">${esc(ev.playerName)}</span>` : ''}${canEdit() && ev.type === 'SCORE' && ev.delta > 0 && !ev.undone ? ` <button class="linkbtn" data-action="tag-event" data-id="${ev.id}" data-side="${ev.side}">${ev.playerName ? 'Change' : 'Who scored?'}</button>` : ''}</div>${ev.actor ? `<div class="who">by ${esc(ev.actor)}</div>` : ''}</div>
                 <div class="at">${showScore ? `<b>${ev.homeAfter}–${ev.awayAfter}</b>` : ''}${esc(ago(ev.createdAt))}</div>
             </li>`;
     }
@@ -569,6 +580,7 @@
         const f = S.filters;
         const q = f.q.trim().toLowerCase();
         const list = S.matches.filter((m) => {
+            if (mineFilterOn() && !isMine(m)) return false;
             if (f.sport !== 'all' && String(m.sport.id) !== f.sport) return false;
             if (f.status !== 'all' && m.status !== f.status) return false;
             if (f.division !== 'all' && m.division !== f.division) return false;
@@ -594,7 +606,7 @@
                 <div><h1>Schedule</h1><p>${plural(list.length, 'match', 'matches')}${any ? ' match these filters' : ' in the tournament'}.${canEdit() ? '' : ' Coaches and admins can log in to add or change matches.'}</p></div>
                 ${canEdit() ? '<div class="head-actions"><button class="btn dark" data-action="new-match">New match <kbd>N</kbd></button></div>' : ''}
             </div>
-            <div class="filters">${sportChips(f.sport, 'filter-sport')}</div>
+            <div class="filters">${mineChip()}${sportChips(f.sport, 'filter-sport')}</div>
             <div class="filters">
                 ${st('all', 'Any status')}${st('LIVE', 'Live')}${st('UPCOMING', 'Upcoming')}${st('DONE', 'Final')}
                 <select id="schedDivision" aria-label="Division" data-change="division">
@@ -617,7 +629,7 @@
                 <div class="time">${esc(fmtTime(matchStart(m)))}<small>${esc(m.code)}</small></div>
                 <button class="open" data-action="goto" data-id="${m.id}" aria-label="Open ${esc(vs(m))} on the Day line">
                     <div class="vs"><span class="sq" style="--c:${esc(m.homeTeam.color)}"></span>${esc(m.homeTeam.shortName)} <span class="muted" style="font-weight:400">v</span> <span class="sq" style="--c:${esc(m.awayTeam.color)}"></span>${esc(m.awayTeam.shortName)} ${tag(m)}</div>
-                    <div class="meta">${esc(m.sport.name)}, ${esc(m.divisionLabel)}${m.venue ? `, ${esc(m.venue)}` : ''}</div>
+                    <div class="meta">${esc(m.sport.name)}, ${esc(m.divisionLabel)}${m.venue ? `, ${esc(m.venue)}` : ''}${S.reports.get(m.id) && S.reports.get(m.id).mvpName ? `, <span class="mvp-inline">★ MVP ${esc(S.reports.get(m.id).mvpName)}</span>` : ''}</div>
                 </button>
                 <div class="res">${m.status === 'UPCOMING' ? '' : `${m.homeScore}–${m.awayScore}`}</div>
                 <div class="acts">
@@ -635,8 +647,13 @@
             const st = S.standings;
             if (!st.sportId && S.sports[0]) st.sportId = S.sports[0].id;
             if (!st.sportId) return;
-            const rows = await attempt(() => api('GET', `/api/standings?sportId=${st.sportId}&division=${st.division}`));
-            if (rows) { st.rows = rows; if (S.view === 'standings') queueRender(); }
+            const [rows, scorers] = await Promise.all([
+                attempt(() => api('GET', `/api/standings?sportId=${st.sportId}&division=${st.division}`)),
+                attempt(() => api('GET', `/api/scorers?sportId=${st.sportId}&division=${st.division}`)),
+            ]);
+            if (rows) st.rows = rows;
+            if (scorers) st.scorers = scorers;
+            if (S.view === 'standings') queueRender();
         }, delay);
     }
 
@@ -669,7 +686,8 @@
             <div class="head"><div><h1>Standings</h1><p>From final scores. 3 points for a win${draws ? ', 1 for a draw' : ''}. Ties split by score difference, then points scored.</p></div></div>
             <div class="filters">${S.sports.map((s) => `<button class="chip ${s.id === sport.id ? 'on' : ''}" data-action="st-sport" data-v="${s.id}"><span class="dot" style="--c:${esc(s.color)}"></span>${esc(s.name)}</button>`).join('')}</div>
             <div class="filters">${S.divisions.map((d) => `<button class="chip ${d.value === st.division ? 'on' : ''}" data-action="st-division" data-v="${d.value}">${esc(d.label)}</button>`).join('')}</div>
-            ${table}`;
+            ${table}
+            ${scorersTable(sport)}`;
     }
 
     // ---------------------------------------------------------- teams/sports
@@ -688,18 +706,22 @@
     function viewTeams() {
         const admin = canEdit();
         const teamTile = (t) => {
-            const inner = `
-                <span class="wl" title="Wins and losses, all sports">${teamRecord(t.id)}</span>
-                <span class="code"><span class="sq" style="--c:${esc(t.color)};width:14px;height:14px"></span>${esc(t.shortName)}</span>
-                <span class="nm">${esc(t.name)}</span>
-                <span class="ct">${esc(t.city || '')}</span>`;
-            return admin
-                ? `<button class="team" data-action="edit-team" data-id="${t.id}" aria-label="Edit ${esc(t.name)}">${inner}</button>`
-                : `<div class="team">${inner}</div>`;
+            const n = teamCount(t.id);
+            return `
+                <div class="team">
+                    <span class="wl" title="Wins and losses, all sports">${teamRecord(t.id)}</span>
+                    <span class="code"><span class="sq" style="--c:${esc(t.color)};width:14px;height:14px"></span>${esc(t.shortName)}</span>
+                    <span class="nm">${esc(t.name)}</span>
+                    <span class="ct">${esc(t.city || '')}</span>
+                    <span class="team-acts">
+                        <button class="btn sm" data-action="open-roster" data-id="${t.id}">Rosters <span class="muted">${n}</span></button>
+                        ${admin ? `<button class="btn sm quiet" data-action="edit-team" data-id="${t.id}" aria-label="Edit ${esc(t.name)}">Edit</button>` : ''}
+                    </span>
+                </div>`;
         };
         return `
             <div class="head">
-                <div><h1>Teams</h1><p>${admin ? 'Click a team to edit it.' : 'Log in to add or edit teams and sports.'}</p></div>
+                <div><h1>Teams</h1><p>${admin ? 'Open Rosters to add players for each sport and division.' : 'Open Rosters to see each school\'s players.'}</p></div>
                 ${admin ? '<div class="head-actions"><button class="btn" data-action="new-sport">Add sport</button><button class="btn dark" data-action="new-team">Add team</button></div>' : ''}
             </div>
             <div class="teams">
@@ -746,6 +768,532 @@
                 <div class="empty"><div><strong>No records yet.</strong>${admin ? 'Add the first conference best.' : 'An admin can add them.'}</div>${admin ? '<button class="btn" data-action="new-record">Add record</button>' : ''}</div>`}`;
     }
 
+    // ============================================================ rosters
+    const rosterOf = (teamId, sportId, division) => S.players
+        .filter((p) => p.teamId === Number(teamId) && p.sportId === Number(sportId) && p.division === division)
+        .sort((a, b) => (a.number ?? 1000) - (b.number ?? 1000) || a.name.localeCompare(b.name));
+    const playerLabel = (p) => (p.number != null ? `#${p.number} ${p.name}` : p.name);
+    const divisionLabel = (v) => (S.divisions.find((d) => d.value === v) || { label: v }).label;
+    const teamCount = (teamId) => S.players.filter((p) => p.teamId === teamId).length;
+
+    /** Opens the roster drawer for a school. Starts on a sport/division that school actually plays. */
+    function openRoster(teamId, sportId, division) {
+        const team = byId(S.teams, teamId);
+        if (!team) return;
+        if (!sportId || !division) {
+            const played = S.matches.find((m) => m.homeTeam.id === team.id || m.awayTeam.id === team.id);
+            const hasPlayers = S.players.find((p) => p.teamId === team.id);
+            sportId = (hasPlayers && hasPlayers.sportId) || (played && played.sport.id) || (S.sports[0] && S.sports[0].id);
+            division = (hasPlayers && hasPlayers.division) || (played && played.division) || 'VARSITY_BOYS';
+        }
+        S.rosterOpen = { teamId: team.id, sportId: Number(sportId), division };
+        S.drawerSubmit = null;
+        renderRosterDrawer(true);
+        $('#drawer').hidden = false;
+        $('#drawerBackdrop').hidden = false;
+    }
+
+    function renderRosterDrawer(full) {
+        const r = S.rosterOpen;
+        if (!r) return;
+        const team = byId(S.teams, r.teamId);
+        const sport = byId(S.sports, r.sportId);
+        if (!team || !sport) { closeDrawer(); return; }
+        const list = rosterOf(r.teamId, r.sportId, r.division);
+        const edit = canEdit();
+        const rows = list.length ? `
+            <ul class="roster-list">${list.map((p) => `
+                <li>
+                    <span class="num">${p.number != null ? p.number : '–'}</span>
+                    <span class="pn">${esc(p.name)}${p.position ? `<small>${esc(p.position)}</small>` : ''}</span>
+                    ${edit ? `<span class="acts"><button class="btn sm quiet" data-action="edit-player" data-id="${p.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-player" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">Remove</button></span>` : ''}
+                </li>`).join('')}</ul>`
+            : `<p class="muted roster-empty">No players on this roster yet.${edit ? ' Add them below, or paste a whole list.' : ''}</p>`;
+        const listEl = $('#rosterList');
+        if (!full && listEl) {
+            listEl.innerHTML = rows;
+            const count = $('#rosterCount');
+            if (count) count.textContent = plural(list.length, 'player');
+            return;
+        }
+        const pastePlaceholder = '4 Omar Haddad\n7 Lena Nair, Guard\nSara Malik';
+        $('#drawer').innerHTML = `
+            <header><h2><span class="sq" style="--c:${esc(team.color)};width:14px;height:14px"></span> ${esc(team.shortName)} roster</h2><button class="btn icon quiet" data-action="close-drawer" aria-label="Close">${ICON.close}</button></header>
+            <div class="fields roster">
+                <div class="row2">
+                    <label class="field"><span>Sport</span><select data-change="roster-sport">${S.sports.map((s) => `<option value="${s.id}" ${s.id === r.sportId ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+                    <label class="field"><span>Division</span><select data-change="roster-division">${S.divisions.map((d) => `<option value="${d.value}" ${d.value === r.division ? 'selected' : ''}>${esc(d.label)}</option>`).join('')}</select></label>
+                </div>
+                <div class="roster-head"><b>${esc(team.name)}</b><span class="muted" id="rosterCount">${plural(list.length, 'player')}</span></div>
+                <div id="rosterList">${rows}</div>
+                ${edit ? `
+                <form class="roster-add" data-form="player-add">
+                    <input type="number" name="number" min="0" max="999" placeholder="#" aria-label="Jersey number">
+                    <input id="rosterName" type="text" name="name" maxlength="60" placeholder="Player name" aria-label="Player name" required>
+                    <input type="text" name="position" maxlength="30" placeholder="Position" aria-label="Position (optional)">
+                    <button class="btn dark" type="submit">Add</button>
+                </form>
+                <details class="paste">
+                    <summary>Paste a whole list</summary>
+                    <form data-form="player-paste">
+                        <textarea name="list" rows="6" placeholder="${esc(pastePlaceholder)}" aria-label="Players, one per line"></textarea>
+                        <small class="muted">One player per line: number (optional), name, then a comma and a position (optional).</small>
+                        <button class="btn" type="submit">Add all</button>
+                    </form>
+                </details>` : '<p class="muted" style="font-size:var(--t-sm)">Coaches and admins can log in to edit rosters.</p>'}
+            </div>
+            ${edit && list.length ? `<footer><button type="button" class="btn danger" data-action="clear-roster" style="margin-right:auto">Clear roster</button><button type="button" class="btn quiet" data-action="close-drawer">Done</button></footer>` : ''}`;
+    }
+
+    function playerDialog(p) {
+        openModal(`
+            <form class="modal" data-form="player-edit" data-id="${p.id}">
+                <h3>Edit player</h3>
+                <div class="stack">
+                    <label class="field"><span>Name</span><input id="peName" type="text" name="name" maxlength="60" value="${esc(p.name)}" required></label>
+                    <div class="row2">
+                        <label class="field"><span>Jersey number</span><input type="number" name="number" min="0" max="999" value="${p.number ?? ''}"></label>
+                        <label class="field"><span>Position</span><input type="text" name="position" maxlength="30" value="${esc(p.position || '')}" placeholder="Optional"></label>
+                    </div>
+                </div>
+                <div class="acts"><button type="button" class="btn quiet" data-action="close-modal">Cancel</button><button class="btn dark" type="submit">Save</button></div>
+            </form>`);
+        setTimeout(() => { const el = $('#peName'); if (el) el.focus(); }, 30);
+    }
+
+    /** "7 Lena Nair, Guard" -> { number: 7, name: 'Lena Nair', position: 'Guard' } */
+    function parsePlayerLine(line) {
+        const t = line.trim().replace(/^#/, '');
+        if (!t) return null;
+        const [main, ...rest] = t.split(',');
+        const m = main.trim().match(/^(\d{1,3})[\s.)-]+(.+)$/);
+        return {
+            number: m ? Number(m[1]) : null,
+            name: (m ? m[2] : main).trim(),
+            position: rest.join(',').trim() || null,
+        };
+    }
+
+    // ============================================================ who scored
+    /** After a score, find the new timeline entry so the coach can say who scored it. */
+    async function offerScorer(m, side) {
+        const detail = await api('GET', `/api/matches/${m.id}`).catch(() => null);
+        if (!detail || S.sel !== m.id) return;
+        S.dockEvents = detail.events;
+        const ev = detail.events.find((e) => e.type === 'SCORE' && e.side === side && e.delta > 0 && !e.undone);
+        S.tagFor = ev && !ev.playerId ? { matchId: m.id, eventId: ev.id, side } : null;
+        renderDock();
+    }
+
+    function scorerBlock(m) {
+        const t = S.tagFor;
+        if (!t || t.matchId !== m.id || !canEdit()) return '';
+        const ev = S.dockEvents.find((e) => e.id === t.eventId);
+        if (!ev || ev.undone) return '';
+        const team = t.side === 'HOME' ? m.homeTeam : m.awayTeam;
+        const list = rosterOf(team.id, m.sport.id, m.division);
+        const chips = list.length
+            ? list.map((p) => `<button class="pchip ${ev.playerId === p.id ? 'on' : ''}" data-action="tag-scorer" data-player="${p.id}">${p.number != null ? `<b>${p.number}</b>` : ''}${esc(p.name)}</button>`).join('')
+            : `<span class="muted">No ${esc(team.shortName)} roster for ${esc(m.sport.name)}, ${esc(m.divisionLabel)} yet.</span> <button class="btn sm" data-action="open-roster" data-id="${team.id}" data-sport="${m.sport.id}" data-division="${m.division}">Add players</button>`;
+        return `
+            <div class="whoscored">
+                <div class="ws-head"><span>Who scored <b>${esc(ev.message)}</b>?</span><button class="btn sm quiet" data-action="skip-scorer">Skip</button></div>
+                <div class="pchips">${chips}</div>
+            </div>`;
+    }
+
+    async function tagScorer(playerId) {
+        const t = S.tagFor;
+        if (!t) return;
+        const ev = await attempt(() => api('POST', `/api/matches/${t.matchId}/events/${t.eventId}/scorer`, { playerId }));
+        if (!ev) return;
+        upsertEvent(ev);
+        S.tagFor = null;
+        renderDock();
+        if (S.view === 'standings') loadStandings(200);
+        toast(ev.playerName ? `${ev.playerName}: ${ev.message}` : 'Scorer cleared.', { key: 'score' });
+    }
+
+    // ============================================================ match reports
+    function reportBlock(m) {
+        if (m.status !== 'DONE') return '';
+        const r = S.reports.get(m.id);
+        if (!r) {
+            return canEdit() ? `<div class="report empty-report"><span>No match report yet.</span><button class="btn sm dark" data-action="write-report" data-id="${m.id}">Write match report</button></div>` : '';
+        }
+        const mvp = r.mvpPlayerId ? S.players.find((p) => p.id === r.mvpPlayerId) : null;
+        const mvpTeam = mvp ? byId(S.teams, mvp.teamId) : null;
+        return `
+            <div class="report">
+                <div class="report-head"><span class="pick-q" style="margin:0">Match report</span>${canEdit() ? `<span><button class="btn sm quiet" data-action="write-report" data-id="${m.id}">Edit</button><button class="btn sm quiet danger" data-action="delete-report" data-id="${m.id}">Delete</button></span>` : ''}</div>
+                ${r.mvpName ? `<div class="mvp"><span class="star" aria-hidden="true">★</span> MVP <b>${esc(r.mvpName)}</b>${mvpTeam ? ` <span class="sq" style="--c:${esc(mvpTeam.color)}"></span> ${esc(mvpTeam.shortName)}` : ''}</div>` : ''}
+                ${r.summary ? `<div class="recap">${esc(r.summary).split(/\n{2,}/).map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`).join('')}</div>` : ''}
+                <div class="by">${r.author ? `By ${esc(r.author)}, ` : ''}${esc(ago(r.updatedAt))}</div>
+            </div>`;
+    }
+
+    function reportDialog(m) {
+        const r = S.reports.get(m.id) || {};
+        const group = (team) => {
+            const list = rosterOf(team.id, m.sport.id, m.division);
+            return list.length ? `<optgroup label="${esc(team.shortName)}">${list.map((p) => `<option value="${p.id}" ${r.mvpPlayerId === p.id ? 'selected' : ''}>${esc(playerLabel(p))}</option>`).join('')}</optgroup>` : '';
+        };
+        const typed = r.mvpName && !r.mvpPlayerId;
+        const hasRoster = rosterOf(m.homeTeam.id, m.sport.id, m.division).length + rosterOf(m.awayTeam.id, m.sport.id, m.division).length > 0;
+        openModal(`
+            <form class="modal wide" data-form="report" data-id="${m.id}">
+                <h3>Match report</h3>
+                <p>${esc(m.homeTeam.shortName)} ${m.homeScore}–${m.awayScore} ${esc(m.awayTeam.shortName)}, ${esc(m.sport.name)}, ${esc(m.divisionLabel)}. Fans see this on the finished match.</p>
+                <div class="stack">
+                    <div class="row2">
+                        <label class="field"><span>MVP</span>
+                            <select name="mvpPlayerId" id="mvpPick">
+                                <option value="">${hasRoster ? 'No MVP, or type a name' : 'No rosters yet, type a name'}</option>
+                                ${group(m.homeTeam)}${group(m.awayTeam)}
+                            </select>
+                        </label>
+                        <label class="field"><span>Or type a name</span><input type="text" name="mvpName" maxlength="60" value="${typed ? esc(r.mvpName) : ''}" placeholder="Only if they're not on a roster"></label>
+                    </div>
+                    <label class="field"><span>Recap</span><textarea id="recapText" name="summary" rows="7" maxlength="2000" placeholder="How the match went: key moments, standout plays, what's next.">${esc(r.summary || '')}</textarea><small><span id="recapCount">${(r.summary || '').length}</span> / 2000</small></label>
+                </div>
+                <div class="acts"><button type="button" class="btn quiet" data-action="close-modal">Cancel</button><button class="btn dark" type="submit">Save report</button></div>
+            </form>`);
+        setTimeout(() => { const el = $('#recapText'); if (el) el.focus(); }, 30);
+    }
+
+    // ============================================================ my matches
+    const myTeam = () => (S.me && S.me.teamId ? byId(S.teams, S.me.teamId) : null);
+    const isMine = (m) => { const t = myTeam(); return !!t && (m.homeTeam.id === t.id || m.awayTeam.id === t.id); };
+    const mineFilterOn = () => S.mineOnly && !!myTeam();
+    function mineChip() {
+        const t = myTeam();
+        if (!t) return '';
+        return `<button class="chip mine ${S.mineOnly ? 'on' : ''}" data-action="toggle-mine" aria-pressed="${S.mineOnly}"><span class="sq" style="--c:${esc(t.color)}"></span>My matches</button>`;
+    }
+
+    // ============================================================ top scorers
+    function scorersTable(sport) {
+        const rows = S.standings.scorers;
+        const unit = increments(sport).length === 1 && increments(sport)[0] === 1 && sport.allowsDraw ? 'Goals' : 'Points';
+        let body;
+        if (!rows) body = '<p class="muted">Adding up the scorers…</p>';
+        else if (!rows.length) body = `<div class="empty"><div><strong>No scorers yet.</strong>After a score, coaches tap who scored. Their ${unit.toLowerCase()} add up here.</div></div>`;
+        else body = `
+            <div class="table-wrap"><table class="grid">
+                <thead><tr><th></th><th>Player</th><th>School</th><th class="num">${unit}</th><th class="num">Scoring plays</th><th class="num">Matches</th><th class="num">Per match</th></tr></thead>
+                <tbody>${rows.map((r, i) => {
+                    const t = byId(S.teams, r.teamId);
+                    return `
+                    <tr>
+                        <td class="rank">${i + 1}</td>
+                        <td><b>${esc(r.name || 'Unknown')}</b>${r.number != null ? ` <span class="muted">#${r.number}</span>` : ''}</td>
+                        <td>${t ? `<span style="display:inline-flex;align-items:center;gap:8px"><span class="sq" style="--c:${esc(t.color)}"></span>${esc(t.shortName)}</span>` : ''}</td>
+                        <td class="num pts">${r.points}</td>
+                        <td class="num">${r.scores}</td>
+                        <td class="num">${r.matches}</td>
+                        <td class="num">${(r.points / Math.max(1, r.matches)).toFixed(1)}</td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table></div>`;
+        return `<h2 class="sub">Top scorers</h2>${body}`;
+    }
+
+    // ============================================================ predictions
+    let predTimer = null;
+    function loadPredictions(delay = 0) {
+        clearTimeout(predTimer);
+        predTimer = setTimeout(async () => {
+            const data = await attempt(() => api('GET', `/api/predictions?voter=${encodeURIComponent(voter)}`));
+            if (data) { S.pred = data; if (S.view === 'predictions') queueRender(); }
+        }, delay);
+    }
+
+    const pct = (x) => `${Math.round(x * 100)}%`;
+
+    /** Turns raw pick counts into everything the Predictions page shows. */
+    function predictionStats() {
+        const rows = S.pred.picks.map((p) => {
+            const m = byId(S.matches, p.matchId);
+            if (!m) return null;
+            const total = p.homeVotes + p.awayVotes;
+            const fav = p.homeVotes > p.awayVotes ? 'HOME' : p.awayVotes > p.homeVotes ? 'AWAY' : null;
+            const favShare = total ? Math.max(p.homeVotes, p.awayVotes) / total : 0;
+            const winner = m.status !== 'DONE' ? null : m.homeScore > m.awayScore ? 'HOME' : m.awayScore > m.homeScore ? 'AWAY' : 'DRAW';
+            const decided = !!(fav && winner && winner !== 'DRAW');
+            return { m, h: p.homeVotes, a: p.awayVotes, total, fav, favShare, winner, decided, correct: decided ? fav === winner : null, mine: p.mine };
+        }).filter((r) => r && r.total > 0);
+
+        const decided = rows.filter((r) => r.decided);
+        const right = decided.filter((r) => r.correct).length;
+
+        const bySport = S.sports.map((s) => {
+            const list = decided.filter((r) => r.m.sport.id === s.id);
+            const all = rows.filter((r) => r.m.sport.id === s.id);
+            return { sport: s, n: list.length, right: list.filter((r) => r.correct).length, picks: all.reduce((t, r) => t + r.total, 0) };
+        });
+
+        const buckets = [[0.5, 0.6, '50–59%'], [0.6, 0.7, '60–69%'], [0.7, 0.8, '70–79%'], [0.8, 1.01, '80–100%']].map(([lo, hi, label]) => {
+            const list = decided.filter((r) => r.favShare >= lo && r.favShare < hi);
+            return {
+                label, n: list.length,
+                won: list.filter((r) => r.correct).length,
+                expected: list.length ? list.reduce((t, r) => t + r.favShare, 0) / list.length : (lo + Math.min(hi, 1)) / 2,
+            };
+        });
+
+        const teams = new Map();
+        rows.forEach((r) => {
+            [[r.m.homeTeam, r.h], [r.m.awayTeam, r.a]].forEach(([t, n]) => {
+                const e = teams.get(t.id) || { team: t, backed: 0, inMatches: 0, matches: 0 };
+                e.backed += n; e.inMatches += r.total; e.matches++;
+                teams.set(t.id, e);
+            });
+        });
+
+        const homePicks = rows.reduce((t, r) => t + r.h, 0);
+        const awayPicks = rows.reduce((t, r) => t + r.a, 0);
+        const finished = S.matches.filter((m) => m.status === 'DONE' && m.homeScore !== m.awayScore);
+        const homeWins = finished.filter((m) => m.homeScore > m.awayScore).length;
+
+        const mine = rows.filter((r) => r.mine);
+        const mineDecided = mine.filter((r) => r.winner && r.winner !== 'DRAW');
+        const mineRight = mineDecided.filter((r) => r.winner === r.mine).length;
+
+        return {
+            rows, decided, right,
+            bySport, buckets,
+            teams: [...teams.values()].sort((a, b) => b.backed - a.backed),
+            homePicks, awayPicks, homeWins, finishedDecided: finished.length,
+            upsets: decided.filter((r) => !r.correct).sort((a, b) => b.favShare - a.favShare).slice(0, 6),
+            upcoming: rows.filter((r) => r.m.status === 'UPCOMING').sort((a, b) => bySchedule(a.m, b.m)),
+            mine, mineDecided, mineRight,
+        };
+    }
+
+    /** Horizontal bars. Each item: { label (html), value 0..1 of max, text, tip, marker (0..1, optional) }. */
+    function hbars(items, { refLine = null, refLabel = '' } = {}) {
+        return `
+            <div class="hbars">${items.map((it) => `
+                <div class="hb" tabindex="0" data-tip="${esc(it.tip || '')}">
+                    <span class="hb-l">${it.label}</span>
+                    <span class="hb-t">
+                        <span class="hb-f ${it.muted ? 'muted' : ''}" style="width:${Math.max(0, Math.min(1, it.value)) * 100}%"></span>
+                        ${it.marker != null ? `<span class="hb-m" style="left:${Math.min(1, it.marker) * 100}%"></span>` : ''}
+                        ${refLine != null ? `<span class="hb-ref" style="left:${refLine * 100}%"></span>` : ''}
+                    </span>
+                    <span class="hb-v">${it.text}</span>
+                </div>`).join('')}
+            </div>
+            ${refLine != null && refLabel ? `<div class="hb-note"><span class="ref-key"></span>${esc(refLabel)}</div>` : ''}`;
+    }
+
+    function splitBar(left, right, leftLabel, rightLabel, aria) {
+        const total = left + right || 1;
+        const lp = Math.round((left / total) * 100);
+        return `
+            <div class="split2" role="img" aria-label="${esc(aria)}">
+                <span class="l" style="flex-grow:${Math.max(left, 0.001)}">${esc(leftLabel)} ${lp}%</span>
+                <span class="r" style="flex-grow:${Math.max(right, 0.001)}">${100 - lp}% ${esc(rightLabel)}</span>
+            </div>`;
+    }
+
+    function dailyChart(daily) {
+        const map = new Map(daily.map((d) => [d.day, d.picks]));
+        const last = daily.length ? new Date(daily[daily.length - 1].day + 'T12:00:00') : new Date();
+        const end = startOfDay(new Date()) > last ? startOfDay(new Date()) : startOfDay(last);
+        const days = [];
+        for (let i = 13; i >= 0; i--) {
+            const d = addDays(end, -i);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            days.push({ d, n: map.get(key) || 0 });
+        }
+        const max = Math.max(1, ...days.map((x) => x.n));
+        const peak = days.reduce((a, b) => (b.n > a.n ? b : a), days[0]);
+        return `
+            <div class="vbars" role="img" aria-label="Picks per day over the last two weeks">
+                ${days.map((x) => `
+                    <div class="vb" tabindex="0" data-tip="${esc(x.d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }))}: ${plural(x.n, 'pick')}">
+                        <span class="vb-n">${x === peak && x.n ? x.n : ''}</span>
+                        <span class="vb-f" style="height:${(x.n / max) * 100}%"></span>
+                        <span class="vb-d">${x.d.getDate()}</span>
+                    </div>`).join('')}
+            </div>`;
+    }
+
+    function viewPredictions() {
+        if (!S.pred) return '<div class="head"><div><h1>Predictions</h1><p>Loading the picks…</p></div></div>';
+        const st = predictionStats();
+        const head = `
+            <div class="head">
+                <div><h1>Predictions</h1><p>What fans picked with "Who will win?", and how it turned out. Picks close when a match starts. Draws don't count toward accuracy.</p></div>
+            </div>`;
+        if (!st.rows.length) {
+            return `${head}<div class="empty"><div><strong>No picks yet.</strong>Open an upcoming match on the Day line and pick who you think will win.</div><button class="btn" data-action="goto-upcoming">Find an upcoming match</button></div>`;
+        }
+
+        const acc = st.decided.length ? st.right / st.decided.length : null;
+        const tiles = `
+            <div class="tiles">
+                <div class="tile"><span class="tl-k">Picks made</span><span class="tl-v">${S.pred.totalPicks}</span><span class="tl-s">on ${plural(st.rows.length, 'match', 'matches')}</span></div>
+                <div class="tile"><span class="tl-k">Fans picking</span><span class="tl-v">${S.pred.fans}</span><span class="tl-s">about ${(S.pred.totalPicks / Math.max(1, S.pred.fans)).toFixed(1)} picks each</span></div>
+                <div class="tile"><span class="tl-k">Crowd accuracy</span><span class="tl-v">${acc == null ? '–' : pct(acc)}</span><span class="tl-s">${acc == null ? 'No finished matches with picks yet' : `Favourite won ${st.right} of ${st.decided.length} finished matches`}</span></div>
+                <div class="tile"><span class="tl-k">Your record</span><span class="tl-v">${st.mineDecided.length ? `${st.mineRight}/${st.mineDecided.length}` : '–'}</span><span class="tl-s">${!st.mine.length ? 'You haven\'t picked yet' : st.mineDecided.length ? `right so far, ${plural(st.mine.length, 'pick')} in all` : `${plural(st.mine.length, 'pick')}, waiting on results`}</span></div>
+            </div>`;
+
+        const sportRows = st.bySport.filter((s) => s.n > 0);
+        const accuracyCard = `
+            <section class="card">
+                <h3>How often the crowd is right</h3>
+                <p class="card-sub">Share of finished matches where the team most fans picked won, by sport.</p>
+                ${sportRows.length ? hbars([
+                    ...(sportRows.length > 1 ? [{ label: '<b>All sports</b>', value: st.right / st.decided.length, text: `${pct(st.right / st.decided.length)} <small>${st.right}/${st.decided.length}</small>`, tip: `All sports: right ${st.right} of ${st.decided.length} times` }] : []),
+                    ...sportRows.map((s) => ({
+                        label: `<span class="dot" style="--c:${esc(s.sport.color)}"></span>${esc(s.sport.name)}`,
+                        value: s.right / s.n, text: `${pct(s.right / s.n)} <small>${s.right}/${s.n}</small>`,
+                        tip: `${s.sport.name}: the favourite won ${s.right} of ${s.n} matches`,
+                    })),
+                ], { refLine: 0.5, refLabel: '50% = no better than a coin toss' }) : '<p class="muted">Shows up once a match with picks has finished.</p>'}
+            </section>`;
+
+        const calibrated = st.buckets.filter((b) => b.n > 0);
+        const calibrationCard = `
+            <section class="card">
+                <h3>When the crowd is sure, is it right?</h3>
+                <p class="card-sub">Matches grouped by how strongly fans backed the favourite. The bar is how often that favourite actually won. The tick is how sure fans were.</p>
+                ${calibrated.length ? hbars(st.buckets.map((b) => ({
+                    label: `${b.label} <small>backing</small>`,
+                    value: b.n ? b.won / b.n : 0, muted: !b.n,
+                    marker: b.n ? b.expected : null,
+                    text: b.n ? `${pct(b.won / b.n)} <small>${b.won}/${b.n}</small>` : '<small>no matches</small>',
+                    tip: b.n ? `${b.n} matches where ${b.label} of fans backed the favourite. It won ${b.won} (${pct(b.won / b.n)}). Fans expected about ${pct(b.expected)}.` : `No finished matches with ${b.label} backing yet`,
+                }))) + '<div class="hb-note"><span class="tick-key"></span>How sure fans were (average backing). Bar past the tick: fans were too cautious. Bar short of it: too confident.</div>' : '<p class="muted">Shows up once a match with picks has finished.</p>'}
+            </section>`;
+
+        const maxBacked = Math.max(1, ...st.teams.map((t) => t.backed));
+        const teamsCard = `
+            <section class="card">
+                <h3>Most-backed schools</h3>
+                <p class="card-sub">Total picks for each school, across all its matches. The small number is the share of picks it got in its own matches.</p>
+                ${hbars(st.teams.map((t) => ({
+                    label: `<span class="sq" style="--c:${esc(t.team.color)}"></span><b>${esc(t.team.shortName)}</b>`,
+                    value: t.backed / maxBacked,
+                    text: `${t.backed} <small>${pct(t.backed / Math.max(1, t.inMatches))}</small>`,
+                    tip: `${t.team.name}: ${plural(t.backed, 'pick')} in ${plural(t.matches, 'match', 'matches')}, ${pct(t.backed / Math.max(1, t.inMatches))} of the picks in those matches`,
+                })))}
+            </section>`;
+
+        const homeCard = `
+            <section class="card">
+                <h3>Home or away?</h3>
+                <p class="card-sub">Do fans lean toward the home team, and does the home team really win more?</p>
+                <div class="pair-label">Fans picked</div>
+                ${splitBar(st.homePicks, st.awayPicks, 'Home', 'Away', `Fans picked home ${pct(st.homePicks / Math.max(1, st.homePicks + st.awayPicks))}`)}
+                <div class="pair-label">Actually won${st.finishedDecided ? ` <small>(${plural(st.finishedDecided, 'finished match', 'finished matches')}, no draws)</small>` : ''}</div>
+                ${st.finishedDecided ? splitBar(st.homeWins, st.finishedDecided - st.homeWins, 'Home', 'Away', `Home teams won ${pct(st.homeWins / st.finishedDecided)}`) : '<p class="muted">No finished matches yet.</p>'}
+            </section>`;
+
+        const maxSport = Math.max(1, ...st.bySport.map((s) => s.picks));
+        const sportCard = `
+            <section class="card">
+                <h3>Picks by sport</h3>
+                <p class="card-sub">Which sports fans predict most.</p>
+                ${hbars(st.bySport.filter((s) => s.picks > 0).sort((a, b) => b.picks - a.picks).map((s) => ({
+                    label: `<span class="dot" style="--c:${esc(s.sport.color)}"></span>${esc(s.sport.name)}`,
+                    value: s.picks / maxSport, text: `${s.picks}`,
+                    tip: `${s.sport.name}: ${plural(s.picks, 'pick')}`,
+                })))}
+            </section>`;
+
+        const dailyCard = `
+            <section class="card">
+                <h3>Picks over time</h3>
+                <p class="card-sub">Picks made each day over the last two weeks.</p>
+                ${dailyChart(S.pred.daily)}
+            </section>`;
+
+        const vsCell = (r) => `<span class="sq" style="--c:${esc(r.m.homeTeam.color)}"></span>${esc(r.m.homeTeam.shortName)} <span class="muted">v</span> <span class="sq" style="--c:${esc(r.m.awayTeam.color)}"></span>${esc(r.m.awayTeam.shortName)}`;
+        const favName = (r) => (r.fav === 'HOME' ? r.m.homeTeam : r.m.awayTeam).shortName;
+        const upsetsCard = `
+            <section class="card wide">
+                <h3>Biggest upsets</h3>
+                <p class="card-sub">Finished matches where the crowd's favourite lost, most confident first.</p>
+                ${st.upsets.length ? `<div class="table-wrap"><table class="grid compact">
+                    <thead><tr><th>Match</th><th>Crowd backed</th><th>Result</th><th></th></tr></thead>
+                    <tbody>${st.upsets.map((r) => `
+                        <tr>
+                            <td><span class="vsc">${vsCell(r)}</span><div class="muted small">${esc(r.m.sport.name)}, ${esc(r.m.divisionLabel)}</div></td>
+                            <td><b>${esc(favName(r))}</b> ${pct(r.favShare)} <span class="muted small">of ${r.total}</span></td>
+                            <td><b>${r.m.homeScore}–${r.m.awayScore}</b> <span class="muted small">${esc((r.winner === 'HOME' ? r.m.homeTeam : r.m.awayTeam).shortName)} won</span></td>
+                            <td class="num"><button class="btn sm quiet" data-action="goto" data-id="${r.m.id}">Open</button></td>
+                        </tr>`).join('')}</tbody></table></div>` : `<p class="muted">${st.decided.length ? 'No upsets so far. The crowd\'s favourite has won every finished match.' : 'Shows up once a match with picks has finished.'}</p>`}
+            </section>`;
+
+        const upcomingCard = `
+            <section class="card wide">
+                <h3>Coming up</h3>
+                <p class="card-sub">What fans think about matches that haven't started. Picks are still open, so these can change.</p>
+                ${st.upcoming.length ? `<ul class="pred-list">${st.upcoming.map((r) => {
+                    const hp = r.h / r.total;
+                    const call = r.favShare < 0.55 ? 'Close call' : r.favShare >= 0.7 ? 'Clear favourite' : 'Leaning';
+                    return `
+                        <li>
+                            <div class="pl-what"><span class="vsc">${vsCell(r)}</span><span class="muted small">${esc(fmtRel(matchStart(r.m)))} ${esc(fmtTime(matchStart(r.m)))}, ${esc(r.m.sport.name)}</span></div>
+                            <div class="pulse" data-tip="${esc(`${r.m.homeTeam.shortName} ${r.h}, ${r.m.awayTeam.shortName} ${r.a}`)}">
+                                <span style="flex-grow:${Math.max(r.h, 0.001)};background:${esc(r.m.homeTeam.color)}">${esc(r.m.homeTeam.shortName)} ${Math.round(hp * 100)}%</span>
+                                <span style="flex-grow:${Math.max(r.a, 0.001)};background:${esc(r.m.awayTeam.color)};justify-content:flex-end">${100 - Math.round(hp * 100)}% ${esc(r.m.awayTeam.shortName)}</span>
+                            </div>
+                            <div class="pl-meta"><span class="tag">${call}</span><span class="muted small">${plural(r.total, 'pick')}</span></div>
+                            <button class="btn sm" data-action="goto" data-id="${r.m.id}">${r.mine ? 'Change pick' : 'Pick'}</button>
+                        </li>`;
+                }).join('')}</ul>` : '<p class="muted">No upcoming matches have picks yet.</p>'}
+            </section>`;
+
+        const mineCard = st.mine.length ? `
+            <section class="card wide">
+                <h3>Your picks</h3>
+                <p class="card-sub">Saved in this browser.</p>
+                <div class="table-wrap"><table class="grid compact">
+                    <thead><tr><th>Match</th><th>You picked</th><th>Crowd</th><th>Result</th></tr></thead>
+                    <tbody>${st.mine.sort((a, b) => bySchedule(b.m, a.m)).map((r) => {
+                        const mineTeam = r.mine === 'HOME' ? r.m.homeTeam : r.m.awayTeam;
+                        const share = (r.mine === 'HOME' ? r.h : r.a) / r.total;
+                        let res = '<span class="muted">Not played yet</span>';
+                        if (r.m.status === 'LIVE') res = '<span class="tag live">Live</span>';
+                        else if (r.winner === 'DRAW') res = `<span class="muted">Draw ${r.m.homeScore}–${r.m.awayScore}</span>`;
+                        else if (r.winner) res = r.winner === r.mine ? `<span class="good-text">✓ Right</span> ${r.m.homeScore}–${r.m.awayScore}` : `<span class="bad-text">✗ Wrong</span> ${r.m.homeScore}–${r.m.awayScore}`;
+                        return `<tr><td><span class="vsc">${vsCell(r)}</span></td><td><span class="sq" style="--c:${esc(mineTeam.color)}"></span> <b>${esc(mineTeam.shortName)}</b></td><td>${pct(share)} agreed</td><td>${res}</td></tr>`;
+                    }).join('')}</tbody>
+                </table></div>
+            </section>` : '';
+
+        return `${head}${tiles}<div class="cards">${accuracyCard}${calibrationCard}${teamsCard}${homeCard}${sportCard}${dailyCard}${upsetsCard}${upcomingCard}${mineCard}</div>`;
+    }
+
+    // Hover and focus tooltips for chart marks ([data-tip]).
+    const tipEl = document.createElement('div');
+    tipEl.className = 'tip';
+    tipEl.hidden = true;
+    document.body.appendChild(tipEl);
+    function showTip(target, x, y) {
+        const text = target.dataset.tip;
+        if (!text) return;
+        tipEl.textContent = text;
+        tipEl.hidden = false;
+        const w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+        tipEl.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))}px`;
+        tipEl.style.top = `${Math.max(8, y - h - 12)}px`;
+    }
+    document.addEventListener('mousemove', (e) => {
+        const t = e.target.closest && e.target.closest('[data-tip]');
+        if (t && t.dataset.tip) showTip(t, e.clientX, e.clientY); else tipEl.hidden = true;
+    });
+    document.addEventListener('focusin', (e) => {
+        const t = e.target.closest && e.target.closest('[data-tip]');
+        if (t && t.dataset.tip) { const r = t.getBoundingClientRect(); showTip(t, r.left + r.width / 2, r.top); }
+    });
+    document.addEventListener('focusout', () => { tipEl.hidden = true; });
+    window.addEventListener('scroll', () => { tipEl.hidden = true; }, { passive: true });
+
     // ------------------------------------------------------- match actions
     async function doScore(id, side, delta) {
         const m = await attempt(() => api('POST', `/api/matches/${id}/score`, { side, delta }));
@@ -754,10 +1302,11 @@
         queueRender();
         const team = side === 'HOME' ? m.homeTeam : m.awayTeam;
         toast(`${team.shortName} ${delta > 0 ? '+' : ''}${delta}, now ${m.homeScore}–${m.awayScore}`, { key: 'score', action: { label: 'Undo', fn: () => doUndo(id) } });
+        if (delta > 0 && S.sel === id) offerScorer(m, side); else { S.tagFor = null; renderDock(); }
     }
     async function doUndo(id) {
         const m = await attempt(() => api('POST', `/api/matches/${id}/undo`));
-        if (m) { upsertMatch(m); queueRender(); toast(`Undone. Score is ${m.homeScore}–${m.awayScore}.`, { key: 'score' }); }
+        if (m) { S.tagFor = null; upsertMatch(m); queueRender(); toast(`Undone. Score is ${m.homeScore}–${m.awayScore}.`, { key: 'score' }); }
     }
     async function matchAction(id, path, body, okMsg) {
         const m = await attempt(() => api('POST', `/api/matches/${id}/${path}`, body));
@@ -771,7 +1320,12 @@
             body: `Final score ${m.homeTeam.shortName} ${m.homeScore}–${m.awayScore} ${m.awayTeam.shortName}. It will count in the standings.`,
             ok: 'End match',
         });
-        if (ok) matchAction(id, 'finish', undefined, 'Match ended. Standings updated.');
+        if (!ok) return;
+        const done = await matchAction(id, 'finish');
+        if (done) {
+            S.tagFor = null;
+            toast('Match ended. Standings updated.', { action: { label: 'Write report', fn: () => reportDialog(byId(S.matches, id)) } });
+        }
     }
     function goto(id) {
         const m = byId(S.matches, id);
@@ -826,6 +1380,7 @@
         $('#drawerBackdrop').hidden = true;
         $('#drawer').innerHTML = '';
         S.drawerSubmit = null;
+        S.rosterOpen = null;
     }
 
     const teamOptions = (selectedId) => S.teams.map((t) => `<option value="${t.id}" ${String(t.id) === String(selectedId) ? 'selected' : ''}>${esc(t.shortName)}, ${esc(t.name)}</option>`).join('');
@@ -1071,12 +1626,13 @@
         const who = S.activityFor === 'all' ? null : byId(staff || [], S.activityFor);
         const accounts = staff === null ? '<p class="muted">Loading accounts…</p>' : `
             <div class="table-wrap"><table class="grid staff-table">
-                <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th class="num">Actions</th><th></th></tr></thead>
+                <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>School</th><th>Status</th><th>Last login</th><th class="num">Actions</th><th></th></tr></thead>
                 <tbody>${staff.map((a) => `
                     <tr class="${a.active ? '' : 'off'}">
                         <td><b>${esc(a.name)}</b>${S.me.id === a.id ? ' <span class="muted">(you)</span>' : ''}</td>
                         <td>${esc(a.username)}</td>
                         <td><span class="tag ${a.role === 'ADMIN' ? 'live' : ''}">${a.role === 'ADMIN' ? 'Admin' : 'Coach'}</span></td>
+                        <td>${a.teamId && byId(S.teams, a.teamId) ? `<span style="display:inline-flex;align-items:center;gap:6px"><span class="sq" style="--c:${esc(byId(S.teams, a.teamId).color)}"></span>${esc(byId(S.teams, a.teamId).shortName)}</span>` : '<span class="muted">–</span>'}</td>
                         <td>${a.active ? 'Active' : '<span class="bad-text">Turned off</span>'}</td>
                         <td>${esc(fmtWhen(a.lastLoginAt))}</td>
                         <td class="num">${a.actions}</td>
@@ -1122,6 +1678,13 @@
                 <div class="inline"><input id="newStaffPassword" type="text" name="password" value="${makePassword()}" autocomplete="off" required><button type="button" class="btn" data-action="gen-password" data-for="newStaffPassword">New</button></div>
                 <small>Give this to them. They can change it after they log in.</small>
             </div>`}
+            <label class="field"><span>School</span>
+                <select name="teamId">
+                    <option value="">None</option>
+                    ${S.teams.map((t) => `<option value="${t.id}" ${a && a.teamId === t.id ? 'selected' : ''}>${esc(t.shortName)}, ${esc(t.name)}</option>`).join('')}
+                </select>
+                <small>Gives them a "My matches" filter for this school.</small>
+            </label>
             <label class="field"><span>Role</span>
                 <select name="role">
                     <option value="COACH" ${!a || a.role === 'COACH' ? 'selected' : ''}>Coach: every tool except Staff</option>
@@ -1133,10 +1696,11 @@
             submit: editing ? 'Save changes' : 'Create account',
             onSubmit: async (fd) => {
                 const body = editing
-                    ? { name: fd.get('name'), role: fd.get('role'), active: fd.get('active') === 'on' }
-                    : { name: fd.get('name'), username: String(fd.get('username') || '').trim().toLowerCase(), password: fd.get('password'), role: fd.get('role') };
+                    ? { name: fd.get('name'), role: fd.get('role'), active: fd.get('active') === 'on', teamId: fd.get('teamId') ? Number(fd.get('teamId')) : null }
+                    : { name: fd.get('name'), username: String(fd.get('username') || '').trim().toLowerCase(), password: fd.get('password'), role: fd.get('role'), teamId: fd.get('teamId') ? Number(fd.get('teamId')) : null };
                 const saved = await attempt(() => (editing ? api('PUT', `/api/staff/${a.id}`, body) : api('POST', '/api/staff', body)));
                 if (!saved) return false;
+                if (S.me && saved.id === S.me.id) { S.me.teamId = saved.teamId; renderView(); }
                 toast(editing ? 'Account saved.' : `Account created. Username ${saved.username}, password ${body.password}`);
                 loadStaff();
                 loadActivity();
@@ -1192,7 +1756,7 @@
             <div class="modal wide">
                 <h3>Keyboard shortcuts</h3>
                 <dl class="keys">
-                    <dt><kbd>1</kbd> to <kbd>5</kbd></dt><dd>Switch page (<kbd>6</kbd> is Staff, for admins)</dd>
+                    <dt><kbd>1</kbd> to <kbd>6</kbd></dt><dd>Switch page (<kbd>7</kbd> is Staff, for admins)</dd>
                     <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Day line: previous / next day (with no match open)</dd>
                     <dt><kbd>T</kbd></dt><dd>Day line: back to today</dd>
                     <dt><kbd>N</kbd></dt><dd>New match (when logged in)</dd>
@@ -1235,6 +1799,8 @@
             return false;
         }
         Object.assign(S, { sports: data.sports, teams: data.teams, matches: data.matches, events: data.events, records: data.records, divisions: data.divisions });
+        S.players = data.players || [];
+        S.reports = new Map((data.reports || []).map((r) => [r.matchId, r]));
         const who = await api('GET', '/api/auth/me').catch(() => null);
         S.me = who && who.signedIn ? who.me : null;
         await loadPicks();
@@ -1270,30 +1836,45 @@
         on('match', (m) => {
             upsertMatch(m);
             if (S.view === 'standings' && m.status === 'DONE') loadStandings(300);
+            if (S.view === 'predictions' && m.status !== 'UPCOMING') loadPredictions(600);
             queueRender();
         });
         on('match-deleted', ({ id }) => {
             S.matches = S.matches.filter((m) => m.id !== id);
             if (S.sel === id) S.sel = null;
+            S.reports.delete(id);
             queueRender();
         });
-        on('event', (ev) => { upsertEvent(ev); queueRender(); });
+        on('event', (ev) => {
+            upsertEvent(ev);
+            if (S.view === 'standings' && ev.playerId) loadStandings(400);
+            queueRender();
+        });
         on('poll', ({ matchId, poll }) => {
             const old = S.picks.get(matchId);
             S.picks.set(matchId, { homeVotes: poll.homeVotes, awayVotes: poll.awayVotes, mine: old ? old.mine : null });
             if (S.sel === matchId) { S.dockPoll = poll; renderDock(); }
+            if (S.view === 'predictions') loadPredictions(800);
         });
         on('teams', () => refreshCatalog().catch(() => {}));
         on('sports', () => refreshCatalog().catch(() => {}));
         on('records', () => refreshRecords().catch(() => {}));
+        on('players', (list) => {
+            S.players = list;
+            if (S.rosterOpen) renderRosterDrawer(false);
+            queueRender();
+        });
+        on('report', (r) => { S.reports.set(r.matchId, r); queueRender(); });
+        on('report-deleted', ({ matchId }) => { S.reports.delete(matchId); queueRender(); });
     }
 
     function route() {
         const v = (location.hash.replace(/^#\/?/, '') || 'day').split('?')[0];
         S.view = VIEWS.includes(v) ? v : 'day';
         if (S.view === 'staff' && !isAdminAccount()) { S.view = 'day'; history.replaceState(null, '', '#/day'); }
-        if (S.view === 'standings') { S.standings.rows = null; loadStandings(); }
+        if (S.view === 'standings') { S.standings.rows = null; S.standings.scorers = null; loadStandings(); }
         if (S.view === 'staff') { loadStaff(); loadActivity(); }
+        if (S.view === 'predictions') loadPredictions();
         render();
         window.scrollTo(0, 0);
     }
@@ -1356,8 +1937,8 @@
         'filter-sport': (el) => { S.filters.sport = el.dataset.v; render(); },
         'filter-status': (el) => { S.filters.status = el.dataset.v; render(); },
         'clear-filters': () => { S.filters = { sport: 'all', status: 'all', division: 'all', q: '' }; render(); },
-        'st-sport': (el) => { S.standings.sportId = Number(el.dataset.v); S.standings.rows = null; render(); loadStandings(); },
-        'st-division': (el) => { S.standings.division = el.dataset.v; S.standings.rows = null; render(); loadStandings(); },
+        'st-sport': (el) => { S.standings.sportId = Number(el.dataset.v); S.standings.rows = null; S.standings.scorers = null; render(); loadStandings(); },
+        'st-division': (el) => { S.standings.division = el.dataset.v; S.standings.rows = null; S.standings.scorers = null; render(); loadStandings(); },
         'new-team': () => teamForm(),
         'edit-team': (el) => teamForm(byId(S.teams, el.dataset.id)),
         'delete-team': async (el) => {
@@ -1378,6 +1959,49 @@
         'delete-record': async (el) => {
             const ok = await confirmBox({ title: 'Delete this record?', body: 'It will be removed from the records list.', ok: 'Delete record', danger: true });
             if (ok && await attempt(() => api('DELETE', `/api/records/${el.dataset.id}`), 'Record deleted.')) { closeDrawer(); refreshRecords(); }
+        },
+        'open-roster': (el) => openRoster(Number(el.dataset.id), el.dataset.sport, el.dataset.division),
+        'edit-player': (el) => { const p = byId(S.players, el.dataset.id); if (p) playerDialog(p); },
+        'delete-player': async (el) => {
+            const p = byId(S.players, el.dataset.id);
+            if (!p) return;
+            const ok = await confirmBox({ title: `Remove ${p.name}?`, body: 'Points they already scored stay in the match timelines.', ok: 'Remove player', danger: true });
+            if (ok && await attempt(() => api('DELETE', `/api/players/${p.id}`), `${p.name} removed.`)) {
+                S.players = S.players.filter((x) => x.id !== p.id);
+                renderRosterDrawer(false);
+            }
+        },
+        'clear-roster': async () => {
+            const r = S.rosterOpen;
+            if (!r) return;
+            const team = byId(S.teams, r.teamId), sport = byId(S.sports, r.sportId);
+            const ok = await confirmBox({ title: 'Clear this roster?', body: `Every player on ${team.shortName} ${sport.name}, ${divisionLabel(r.division)} will be removed.`, ok: 'Clear roster', danger: true });
+            if (!ok) return;
+            const res = await attempt(() => api('DELETE', `/api/players?teamId=${r.teamId}&sportId=${r.sportId}&division=${r.division}`));
+            if (res) {
+                S.players = S.players.filter((p) => !(p.teamId === r.teamId && p.sportId === r.sportId && p.division === r.division));
+                renderRosterDrawer(true);
+                toast(`Roster cleared (${plural(res.deleted, 'player')}).`);
+            }
+        },
+        'tag-scorer': (el) => tagScorer(Number(el.dataset.player)),
+        'skip-scorer': () => { S.tagFor = null; renderDock(); },
+        'tag-event': (el) => { S.tagFor = { matchId: S.sel, eventId: Number(el.dataset.id), side: el.dataset.side }; renderDock(); },
+        'write-report': (el) => { if (requireStaff()) reportDialog(byId(S.matches, el.dataset.id)); },
+        'delete-report': async (el) => {
+            const ok = await confirmBox({ title: 'Delete the match report?', body: 'The MVP and recap will be removed.', ok: 'Delete report', danger: true });
+            const id = Number(el.dataset.id);
+            if (ok && await attempt(() => api('DELETE', `/api/matches/${id}/report`), 'Report deleted.')) { S.reports.delete(id); renderDock(); }
+        },
+        'toggle-mine': () => {
+            S.mineOnly = !S.mineOnly;
+            try { localStorage.setItem('mesac-mine', S.mineOnly ? '1' : '0'); } catch (_) { /* storage off */ }
+            S.sel = null;
+            render();
+        },
+        'goto-upcoming': () => {
+            const next = S.matches.filter((m) => m.status === 'UPCOMING').sort(bySchedule)[0];
+            if (next) goto(next.id); else toast('No upcoming matches right now.');
         },
         'close-drawer': () => closeDrawer(),
         'close-modal': () => closeModal(),
@@ -1427,6 +2051,44 @@
         } else if (kind === 'reset-password') {
             const ok = await attempt(async () => { await api('POST', `/api/staff/${form.dataset.id}/password`, { password: fd.get('password') }); return true; }, 'Password reset. Give the new password to them.');
             if (ok) { closeModal(); loadStaff(); loadActivity(); }
+        } else if (kind === 'player-add') {
+            const r = S.rosterOpen;
+            if (!r) return;
+            const num = String(fd.get('number') || '').trim();
+            const p = await attempt(() => api('POST', '/api/players', { teamId: r.teamId, sportId: r.sportId, division: r.division, name: fd.get('name'), number: num === '' ? null : Number(num), position: fd.get('position') }));
+            if (p) {
+                if (!byId(S.players, p.id)) S.players.push(p);
+                form.reset();
+                renderRosterDrawer(false);
+                const box = $('#rosterName'); if (box) box.focus();
+            }
+        } else if (kind === 'player-paste') {
+            const r = S.rosterOpen;
+            if (!r) return;
+            const lines = String(fd.get('list') || '').split(/\n/).map(parsePlayerLine).filter(Boolean);
+            if (!lines.length) { toast('Paste at least one name.', { error: true }); return; }
+            let added = 0;
+            for (const line of lines) {
+                const p = await attempt(() => api('POST', '/api/players', { teamId: r.teamId, sportId: r.sportId, division: r.division, ...line }));
+                if (p) { added++; if (!byId(S.players, p.id)) S.players.push(p); }
+            }
+            renderRosterDrawer(true);
+            toast(`Added ${plural(added, 'player')}${added < lines.length ? `, ${lines.length - added} skipped` : ''}.`);
+        } else if (kind === 'player-edit') {
+            const old = byId(S.players, form.dataset.id);
+            if (!old) return;
+            const num = String(fd.get('number') || '').trim();
+            const p = await attempt(() => api('PUT', `/api/players/${old.id}`, { teamId: old.teamId, sportId: old.sportId, division: old.division, name: fd.get('name'), number: num === '' ? null : Number(num), position: fd.get('position') }), 'Player saved.');
+            if (p) {
+                S.players = S.players.map((x) => (x.id === p.id ? p : x));
+                closeModal();
+                renderRosterDrawer(false);
+            }
+        } else if (kind === 'report') {
+            const id = Number(form.dataset.id);
+            const pid = fd.get('mvpPlayerId');
+            const r = await attempt(() => api('PUT', `/api/matches/${id}/report`, { mvpPlayerId: pid ? Number(pid) : null, mvpName: pid ? null : fd.get('mvpName'), summary: fd.get('summary') }), 'Match report saved.');
+            if (r) { S.reports.set(r.matchId, r); closeModal(); renderDock(); }
         } else if (kind === 'note') {
             const message = String(fd.get('message') || '').trim();
             if (!message || S.sel == null) return;
@@ -1437,11 +2099,14 @@
 
     document.addEventListener('input', (e) => {
         if (e.target.dataset && e.target.dataset.input === 'search') { S.filters.q = e.target.value; renderView(); }
+        if (e.target.id === 'recapText') { const c = $('#recapCount'); if (c) c.textContent = e.target.value.length; }
     });
     document.addEventListener('change', (e) => {
         const kind = e.target.dataset && e.target.dataset.change;
         if (kind === 'day-division') { S.dayFilters.division = e.target.value; render(); }
         if (kind === 'division') { S.filters.division = e.target.value; render(); }
+        if (kind === 'roster-sport' && S.rosterOpen) { S.rosterOpen.sportId = Number(e.target.value); renderRosterDrawer(true); }
+        if (kind === 'roster-division' && S.rosterOpen) { S.rosterOpen.division = e.target.value; renderRosterDrawer(true); }
     });
 
     // ---------------------------------------------------------- keyboard

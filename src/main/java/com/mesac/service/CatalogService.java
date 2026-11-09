@@ -8,6 +8,7 @@ import com.mesac.model.Sport;
 import com.mesac.model.Team;
 import com.mesac.repository.ConferenceRecordRepository;
 import com.mesac.repository.MatchRepository;
+import com.mesac.repository.PlayerRepository;
 import com.mesac.repository.SportRepository;
 import com.mesac.repository.TeamRepository;
 import com.mesac.web.ApiException;
@@ -33,9 +34,11 @@ public class CatalogService {
     private final MatchRepository matches;
     private final LiveHub live;
     private final ActivityService activity;
+    private final PlayerRepository players;
 
     public CatalogService(TeamRepository teams, SportRepository sports, ConferenceRecordRepository records,
-                          MatchRepository matches, LiveHub live, ActivityService activity) {
+                          MatchRepository matches, LiveHub live, ActivityService activity, PlayerRepository players) {
+        this.players = players;
         this.teams = teams;
         this.sports = sports;
         this.records = records;
@@ -76,6 +79,7 @@ public class CatalogService {
         if (matches.existsByHomeTeamIdOrAwayTeamId(id, id)) {
             throw ApiException.conflict(team.getShortName() + " still has matches. Delete those matches first.");
         }
+        players.deleteByTeamId(id);
         teams.delete(team);
         activity.record("Deleted team " + team.getShortName() + " (" + team.getName() + ")");
         live.publish("teams", teams());
@@ -124,6 +128,7 @@ public class CatalogService {
         if (matches.existsBySportId(id) || records.existsBySportId(id)) {
             throw ApiException.conflict(sport.getName() + " still has matches or records. Remove those first.");
         }
+        players.deleteBySportId(id);
         sports.delete(sport);
         activity.record("Deleted sport " + sport.getName());
         live.publish("sports", sports());

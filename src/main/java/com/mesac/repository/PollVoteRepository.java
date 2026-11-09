@@ -14,4 +14,7 @@ public interface PollVoteRepository extends JpaRepository<PollVote, Long> {
     Optional<PollVote> findByMatch_IdAndVoter(Long matchId, String voter);
 
     void deleteByMatch_Id(Long matchId);
+
+    /** True once the sample "demo-" picks have been added. */
+    boolean existsByVoterStartingWith(String prefix);
 }

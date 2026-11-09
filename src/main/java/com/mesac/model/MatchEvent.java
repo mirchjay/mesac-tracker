@@ -55,6 +55,13 @@ public class MatchEvent {
     @Column(name = "actor_id")
     private Long actorId;
 
+    /** Who scored (optional, tagged by the coach after a score). */
+    @Column(name = "player_id")
+    private Long playerId;
+
+    @Column(name = "player_name", length = 60)
+    private String playerName;
+
     /** True once this score change has been reversed with Undo. */
     private boolean undone = false;
 
@@ -143,6 +150,12 @@ public class MatchEvent {
 
     public Long getActorId() { return actorId; }
     public void setActorId(Long actorId) { this.actorId = actorId; }
+
+    public Long getPlayerId() { return playerId; }
+    public void setPlayerId(Long playerId) { this.playerId = playerId; }
+
+    public String getPlayerName() { return playerName; }
+    public void setPlayerName(String playerName) { this.playerName = playerName; }
 
     public boolean isUndone() { return undone; }
     public void setUndone(boolean undone) { this.undone = undone; }

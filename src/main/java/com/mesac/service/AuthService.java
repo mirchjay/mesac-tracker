@@ -7,6 +7,7 @@ import com.mesac.model.Staff;
 import com.mesac.model.StaffRole;
 import com.mesac.repository.ActivityRepository;
 import com.mesac.repository.StaffRepository;
+import com.mesac.repository.TeamRepository;
 import com.mesac.web.Actor;
 import com.mesac.web.ApiException;
 import com.mesac.web.PasswordHasher;
@@ -31,11 +32,13 @@ public class AuthService {
     private final StaffRepository staff;
     private final ActivityRepository activityLog;
     private final ActivityService activity;
+    private final TeamRepository teams;
 
-    public AuthService(StaffRepository staff, ActivityRepository activityLog, ActivityService activity) {
+    public AuthService(StaffRepository staff, ActivityRepository activityLog, ActivityService activity, TeamRepository teams) {
         this.staff = staff;
         this.activityLog = activityLog;
         this.activity = activity;
+        this.teams = teams;
     }
 
     // ------------------------------------------------------------------ signing in
@@ -101,21 +104,22 @@ public class AuthService {
         return staff.findAllByOrderByRoleAscNameAsc().stream().map(s -> {
             LocalDateTime last = activityLog.findFirstByStaffIdOrderByIdDesc(s.getId()).map(ActivityEntry::getCreatedAt).orElse(null);
             return new StaffView(s.getId(), s.getName(), s.getUsername(), s.getRole().name(), s.isActive(),
-                    s.getCreatedAt(), s.getLastLoginAt(), activityLog.countByStaffId(s.getId()), last);
+                    s.getCreatedAt(), s.getLastLoginAt(), activityLog.countByStaffId(s.getId()), last, s.getTeamId());
         }).toList();
     }
 
-    public StaffView create(String name, String username, String password, StaffRole role) {
+    public StaffView create(String name, String username, String password, StaffRole role, Long teamId) {
         String user = checkUsername(username);
         if (staff.existsByUsernameIgnoreCase(user)) throw ApiException.conflict("The username " + user + " is taken.");
         Staff account = new Staff(checkName(name), user, PasswordHasher.hash(checkPassword(password)),
                 role == null ? StaffRole.COACH : role);
+        account.setTeamId(checkTeam(teamId));
         staff.save(account);
         activity.record("Created " + label(account) + " account for " + account.getName() + " (" + user + ")");
         return view(account);
     }
 
-    public StaffView update(Long id, String name, StaffRole role, Boolean active) {
+    public StaffView update(Long id, String name, StaffRole role, Boolean active, Long teamId) {
         Staff account = find(id);
         Actor.SignedIn me = Actor.current();
         boolean isMe = me != null && me.id().equals(id);
@@ -139,6 +143,11 @@ public class AuthService {
         if (newRole != account.getRole()) {
             what.append(", role ").append(account.getRole().name().toLowerCase()).append(" to ").append(newRole.name().toLowerCase());
             account.setRole(newRole);
+        }
+        Long newTeam = checkTeam(teamId);
+        if (!java.util.Objects.equals(newTeam, account.getTeamId())) {
+            what.append(newTeam == null ? ", school cleared" : ", school set to " + teams.findById(newTeam).map(t -> t.getShortName()).orElse("?"));
+            account.setTeamId(newTeam);
         }
         if (newActive != account.isActive()) {
             what.append(newActive ? ", turned on" : ", turned off");
@@ -170,12 +179,19 @@ public class AuthService {
     }
 
     private static Me toMe(Staff s) {
-        return new Me(s.getId(), s.getName(), s.getUsername(), s.getRole().name());
+        return new Me(s.getId(), s.getName(), s.getUsername(), s.getRole().name(), s.getTeamId());
     }
 
     private StaffView view(Staff s) {
         return new StaffView(s.getId(), s.getName(), s.getUsername(), s.getRole().name(), s.isActive(),
-                s.getCreatedAt(), s.getLastLoginAt(), activityLog.countByStaffId(s.getId()), null);
+                s.getCreatedAt(), s.getLastLoginAt(), activityLog.countByStaffId(s.getId()), null, s.getTeamId());
+    }
+
+    /** null is fine (no school); otherwise the team must exist. */
+    private Long checkTeam(Long teamId) {
+        if (teamId == null) return null;
+        if (!teams.existsById(teamId)) throw ApiException.badRequest("That school doesn't exist any more. Pick another.");
+        return teamId;
     }
 
     private static String label(Staff s) {

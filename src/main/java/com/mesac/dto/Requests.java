@@ -41,5 +41,14 @@ public final class Requests {
 
     public record PasswordResetRequest(String password) {}
 
-    public record StaffRequest(String name, String username, String password, StaffRole role, Boolean active) {}
+    /** teamId links a coach to their school for "My matches" (null = none). */
+    public record StaffRequest(String name, String username, String password, StaffRole role, Boolean active, Long teamId) {}
+
+    public record PlayerRequest(Long teamId, Long sportId, Division division, String name, Integer number, String position) {}
+
+    /** playerId null clears the scorer. */
+    public record ScorerRequest(Long playerId) {}
+
+    /** Pick the MVP from the roster (mvpPlayerId) or type a name (mvpName). */
+    public record ReportRequest(Long mvpPlayerId, String mvpName, String summary) {}
 }

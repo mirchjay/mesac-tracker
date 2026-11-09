@@ -31,12 +31,12 @@ public class StaffController {
 
     @PostMapping("/staff")
     public StaffView create(@RequestBody StaffRequest req) {
-        return auth.create(req.name(), req.username(), req.password(), req.role());
+        return auth.create(req.name(), req.username(), req.password(), req.role(), req.teamId());
     }
 
     @PutMapping("/staff/{id}")
     public StaffView update(@PathVariable("id") Long id, @RequestBody StaffRequest req) {
-        return auth.update(id, req.name(), req.role(), req.active());
+        return auth.update(id, req.name(), req.role(), req.active(), req.teamId());
     }
 
     @PostMapping("/staff/{id}/password")

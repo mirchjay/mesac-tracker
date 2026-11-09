@@ -19,5 +19,8 @@ public interface MatchEventRepository extends JpaRepository<MatchEvent, Long> {
     /** The latest score change that hasn't been undone yet. */
     Optional<MatchEvent> findFirstByMatch_IdAndUndoneFalseAndTypeInOrderByIdDesc(Long matchId, Collection<EventType> types);
 
+    /** Score changes with a tagged scorer that still count (for top scorers). */
+    List<MatchEvent> findByTypeAndUndoneFalseAndPlayerIdIsNotNull(EventType type);
+
     void deleteByMatch_Id(Long matchId);
 }

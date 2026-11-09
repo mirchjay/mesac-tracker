@@ -3,14 +3,14 @@ package com.mesac;
 import com.mesac.model.*;
 import com.mesac.repository.*;
 import com.mesac.service.AuthService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * Fills an empty database with sample sports, MESAC schools, matches, records and passes
@@ -28,10 +28,16 @@ public class DataInitializer implements CommandLineRunner {
     private final PollVoteRepository votes;
     private final ConferenceRecordRepository records;
     private final AuthService auth;
+    private final PlayerRepository players;
+
+    /** Set mesac.demo-data=false in application.properties before the real tournament. */
+    @Value("${mesac.demo-data:true}")
+    private boolean demoData;
 
     public DataInitializer(SportRepository sports, TeamRepository teams, MatchRepository matches,
                            MatchEventRepository events, PollVoteRepository votes,
-                           ConferenceRecordRepository records, AuthService auth) {
+                           ConferenceRecordRepository records, AuthService auth, PlayerRepository players) {
+        this.players = players;
         this.sports = sports;
         this.teams = teams;
         this.matches = matches;
@@ -49,7 +55,14 @@ public class DataInitializer implements CommandLineRunner {
             System.out.println(">>> First admin login: username admin, password mesac-admin-2026 (change it after you sign in)");
         }
 
-        if (sports.count() > 0) return;
+        if (sports.count() == 0) loadSampleData();
+        if (demoData) {
+            seedRosters();
+            seedDemoPicks();
+        }
+    }
+
+    private void loadSampleData() {
 
         // ---- Sports: name, icon, colour, score buttons, period name, periods, draws allowed
         Sport basketball = sports.save(new Sport("Basketball", "🏀", "#F08A24", "1,2,3", "Quarter", 4, false, 70));
@@ -119,6 +132,86 @@ public class DataInitializer implements CommandLineRunner {
         records.save(new ConferenceRecord(soccer, Division.VARSITY_BOYS, "Fastest goal from kick-off", "Omar Khalil", "ABA", "11 seconds", 2021));
 
         System.out.println(">>> MESAC sample data loaded: " + matches.count() + " matches, " + teams.count() + " teams.");
+    }
+
+    // ------------------------------------------------------------------ demo rosters and picks
+
+    private static final String[] BOYS = {"Omar", "Arjun", "Yusuf", "Daniel", "Kenji", "Ethan", "Zaid", "Lucas", "Rayan", "Mateo", "Hamza", "Leo", "Karim", "Noah", "Aditya", "Sami"};
+    private static final String[] GIRLS = {"Lena", "Maya", "Sara", "Aisha", "Noor", "Priya", "Hana", "Mariam", "Zoe", "Layla", "Ananya", "Emma", "Yara", "Sofia", "Dana", "Ines"};
+    private static final String[] LAST = {"Haddad", "Nair", "Khalil", "Smith", "Rahman", "Tanaka", "Malik", "Fernandes", "Kim", "Saleh", "Patel", "Okafor", "Costa", "Hughes", "Aziz", "Rossi", "Chen", "Farah"};
+
+    /**
+     * Sample rosters (8 players) for every school, sport and division that has a match,
+     * and sample scorers on the live matches. Runs once: only while there are no players.
+     */
+    private void seedRosters() {
+        if (players.count() > 0) return;
+        Random rnd = new Random(7);
+        Set<String> done = new HashSet<>();
+        Map<String, List<Player>> rosters = new HashMap<>();
+        for (Match m : matches.findAll()) {
+            for (Team t : List.of(m.getHomeTeam(), m.getAwayTeam())) {
+                String key = t.getId() + "-" + m.getSport().getId() + "-" + m.getDivision();
+                if (!done.add(key)) continue;
+                boolean girls = m.getDivision().name().endsWith("GIRLS");
+                List<Player> list = new ArrayList<>();
+                Set<Integer> numbers = new HashSet<>();
+                for (int i = 0; i < 8; i++) {
+                    String first = (girls ? GIRLS : BOYS)[rnd.nextInt(16)];
+                    String last = LAST[rnd.nextInt(LAST.length)];
+                    int number;
+                    do { number = 1 + rnd.nextInt(30); } while (!numbers.add(number));
+                    list.add(players.save(new Player(t.getId(), m.getSport().getId(), m.getDivision(), first + " " + last, number, null)));
+                }
+                rosters.put(key, list);
+            }
+        }
+        // Tag scorers on points already on live matches, so Top scorers has something to show.
+        for (MatchEvent e : events.findAll()) {
+            Match m = e.getMatch();
+            if (e.getType() != EventType.SCORE || e.getDelta() <= 0 || e.getSide() == null || e.isUndone() || e.getPlayerId() != null) continue;
+            List<Player> list = rosters.get(m.teamFor(e.getSide()).getId() + "-" + m.getSport().getId() + "-" + m.getDivision());
+            if (list == null) continue;
+            Player p = list.get(rnd.nextInt(3)); // a few players score most of the points
+            e.setPlayerId(p.getId());
+            e.setPlayerName(p.getName());
+            events.save(e);
+        }
+        System.out.println(">>> Sample rosters added: " + players.count() + " players. Remove them on the Teams page, or set mesac.demo-data=false.");
+    }
+
+    /**
+     * Sample fan picks on finished and upcoming matches, so the Predictions page has data.
+     * Runs once: only if no demo picks exist yet. Fans favour the eventual winner about 2 times in 3.
+     */
+    private void seedDemoPicks() {
+        if (votes.existsByVoterStartingWith("demo-")) return;
+        Random rnd = new Random(11);
+        LocalDateTime now = LocalDateTime.now();
+        int added = 0;
+        for (Match m : matches.findAll()) {
+            if (m.getStatus() == MatchStatus.LIVE || !votes.findByMatch_Id(m.getId()).isEmpty()) continue;
+            int fansHere = 8 + rnd.nextInt(22);
+            double homeShare = 0.5;
+            if (m.getStatus() == MatchStatus.DONE && m.getHomeScore() != m.getAwayScore()) {
+                boolean homeWon = m.getHomeScore() > m.getAwayScore();
+                double favour = rnd.nextDouble() < 0.7 ? 0.55 + rnd.nextDouble() * 0.3 : 0.2 + rnd.nextDouble() * 0.25;
+                homeShare = homeWon ? favour : 1 - favour;
+            } else {
+                homeShare = 0.3 + rnd.nextDouble() * 0.4;
+            }
+            LocalDateTime closes = m.getScheduledAt() == null || m.getScheduledAt().isAfter(now) ? now : m.getScheduledAt();
+            List<Integer> pool = new ArrayList<>();
+            for (int i = 0; i < 45; i++) pool.add(i);
+            Collections.shuffle(pool, rnd);
+            for (int i = 0; i < fansHere; i++) {
+                PollVote v = new PollVote(m, rnd.nextDouble() < homeShare ? Side.HOME : Side.AWAY, 1, "demo-fan-" + pool.get(i));
+                v.setCreatedAt(closes.minusMinutes(10 + rnd.nextInt(60 * 48)));
+                votes.save(v);
+                added++;
+            }
+        }
+        System.out.println(">>> Sample fan picks added: " + added + ". Set mesac.demo-data=false to stop adding sample data.");
     }
 
     // ------------------------------------------------------------------ helpers

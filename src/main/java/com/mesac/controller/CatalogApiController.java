@@ -10,6 +10,8 @@ import com.mesac.model.*;
 import com.mesac.repository.MatchRepository;
 import com.mesac.service.CatalogService;
 import com.mesac.service.MatchService;
+import com.mesac.service.PlayerService;
+import com.mesac.service.ReportService;
 import com.mesac.service.StandingsService;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,9 +29,13 @@ public class CatalogApiController {
     private final MatchService matchService;
     private final StandingsService standings;
     private final MatchRepository matches;
+    private final PlayerService players;
+    private final ReportService reports;
 
     public CatalogApiController(CatalogService catalog, MatchService matchService, StandingsService standings,
-                                MatchRepository matches) {
+                                MatchRepository matches, PlayerService players, ReportService reports) {
+        this.players = players;
+        this.reports = reports;
         this.catalog = catalog;
         this.matchService = matchService;
         this.standings = standings;
@@ -45,6 +51,8 @@ public class CatalogApiController {
         data.put("matches", matchService.all());
         data.put("events", matchService.recentEvents());
         data.put("records", catalog.records());
+        data.put("players", players.all());
+        data.put("reports", reports.all());
         data.put("divisions", Arrays.stream(Division.values()).map(d -> new Option(d.name(), d.getLabel())).toList());
         return data;
     }

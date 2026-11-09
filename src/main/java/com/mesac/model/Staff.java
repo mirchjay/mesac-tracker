@@ -39,6 +39,10 @@ public class Staff {
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
+    /** The coach's school, for the "My matches" filter (optional). */
+    @Column(name = "team_id")
+    private Long teamId;
+
     public Staff() {}
 
     public Staff(String name, String username, String passwordHash, StaffRole role) {
@@ -71,4 +75,7 @@ public class Staff {
 
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
+
+    public Long getTeamId() { return teamId; }
+    public void setTeamId(Long teamId) { this.teamId = teamId; }
 }
