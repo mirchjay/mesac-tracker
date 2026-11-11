@@ -1,0 +1,19 @@
+# Build output (Maven recreates this every build)
+target/
+
+# Local database files
+data/
+*.db
+*.mv.db
+*.trace.db
+
+# Secrets / local settings
+.env
+
+# Node (old prototype)
+node_modules/
+
+# OS / editor junk
+.DS_Store
+__MACOSX/
+*.log

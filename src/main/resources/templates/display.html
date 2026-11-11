@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MESAC Live Scores</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Display:wght@500;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" th:href="@{/css/display.css}" href="/css/display.css">
+    <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg">
+</head>
+<body class="display-body">
+
+<div class="ribbon" id="ribbon" aria-label="Coming up"></div>
+
+<main class="display">
+    <div class="display-head">
+        <h1><img class="brand-logo" src="/img/mesac-logo.png" alt="" onerror="this.remove()">MESAC live scores<span id="displaySub">Loading…</span></h1>
+        <div class="display-clock" id="displayClock"></div>
+    </div>
+    <div id="displayBoards"></div>
+    <section class="next" id="displayNext"></section>
+</main>
+
+<button class="btn sm fs-btn" id="fsBtn">Full screen</button>
+
+<script th:src="@{/js/display.js}" src="/js/display.js"></script>
+</body>
+</html>
